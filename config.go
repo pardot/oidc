@@ -1,6 +1,10 @@
 package deci
 
 type Config struct {
+	// RelyingPartyName is a human-friendly name to present to users when they
+	// are registering through Webauthn
+	RelyingPartyName string
+
 	// Issuer is the OIDC issuer URL
 	Issuer string
 
@@ -13,6 +17,10 @@ type Config struct {
 func (c *Config) withDefaults() *Config {
 	var ret *Config
 	*ret = *c
+
+	if ret.RelyingPartyName == "" {
+		ret.RelyingPartyName = "Deci"
+	}
 
 	if len(ret.SupportedResponseTypes) == 0 {
 		ret.SupportedResponseTypes = []string{"code"}
