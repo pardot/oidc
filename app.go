@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
-	"net/url"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,14 +24,7 @@ type App struct {
 	router *mux.Router
 }
 
-func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App, error) {
-	cfg = cfg.withDefaults()
-
-	issuerURL, err := url.Parse(cfg.Issuer)
-	if err != nil {
-		return nil, errors.Wrapf(err, "Error parsing issuer URL %s", cfg.Issuer)
-	}
-
+func NewApp(logger logrus.FieldLogger, sstore sessions.Store) *App {
 	a := &App{
 		logger: logger,
 		sstore: sstore,
@@ -44,15 +35,8 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App
 	router.HandleFunc("/", a.handleIndex)
 	router.HandleFunc("/credentials", a.handleCredentialCreate).Methods("POST")
 
-	// OIDC
-	dh, err := discoveryHandler(*issuerURL, cfg.SupportedResponseTypes)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error building discovery handler")
-	}
-	router.HandleFunc("/.well-known/openid-configuration", dh)
-
 	a.router = router
-	return a, nil
+	return a
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
