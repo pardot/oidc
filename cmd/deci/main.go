@@ -11,6 +11,7 @@ import (
 	"github.com/heroku/deci"
 	"github.com/joeshaw/envdecode"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -37,6 +38,8 @@ func main() {
 }
 
 func run() error {
+	logger := logrus.New()
+
 	var cfg config
 	if err := envdecode.StrictDecode(&cfg); err != nil {
 		return errors.Wrap(err, "failed to load configuration")
@@ -57,7 +60,7 @@ func run() error {
 	}
 
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
-	a := deci.NewApp(session)
+	a := deci.NewApp(logger, session)
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: a,
