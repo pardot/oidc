@@ -60,7 +60,11 @@ func run() error {
 	}
 
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
-	a := deci.NewApp(logger, session)
+	// TODO - load config from somewhere
+	a, err := deci.NewApp(logger, &deci.Config{}, session)
+	if err != nil {
+		return errors.Wrap(err, "Error creating app")
+	}
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: a,
