@@ -65,6 +65,7 @@ func run() error {
 	if err != nil {
 		return errors.Wrap(err, "Error creating app")
 	}
+
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: a,
