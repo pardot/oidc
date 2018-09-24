@@ -44,3 +44,15 @@
 [[constraint]]
   name = "gopkg.in/square/go-jose.v2"
   version = "~2.1.9"
+
+[[constraint]]
+  name = "github.com/coreos/go-oidc"
+  branch = "v2"
+
+[[constraint]]
+  name = "github.com/pkg/errors"
+  version = "~0.8.0"
+
+[[constraint]]
+  name = "golang.org/x/oauth2"
+  branch = "master"
