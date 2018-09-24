@@ -6,9 +6,10 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/heroku/deci/internal/storage"
 	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
+
+	"github.com/heroku/deci/internal/storage"
 )
 
 const (
