@@ -64,3 +64,15 @@
 [[constraint]]
   name = "github.com/sirupsen/logrus"
   version = "~1.0.6"
+
+[[constraint]]
+  name = "github.com/felixge/httpsnoop"
+  version = "~1.0.0"
+
+[[constraint]]
+  name = "github.com/prometheus/client_golang"
+  version = "~0.8.0"
+
+[[constraint]]
+  name = "github.com/kylelemons/godebug"
+  branch = "master"
