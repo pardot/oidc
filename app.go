@@ -6,11 +6,9 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
-	"github.com/heroku/deci/internal/storage"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -22,13 +20,10 @@ const (
 )
 
 type App struct {
-	logger  logrus.FieldLogger
-	sstore  sessions.Store
-	storage storage.Storage
+	logger logrus.FieldLogger
+	sstore sessions.Store
 
 	router *mux.Router
-
-	now func() time.Time
 }
 
 func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App, error) {
@@ -42,7 +37,6 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App
 	a := &App{
 		logger: logger,
 		sstore: sstore,
-		now:    time.Now,
 	}
 
 	router := mux.NewRouter()
@@ -50,14 +44,12 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App
 	router.HandleFunc("/", a.handleIndex)
 	router.HandleFunc("/credentials", a.handleCredentialCreate).Methods("POST")
 
-	// OIDC Discovery
+	// OIDC
 	dh, err := discoveryHandler(*issuerURL, cfg.SupportedResponseTypes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Error building discovery handler")
 	}
 	router.HandleFunc("/.well-known/openid-configuration", dh)
-	router.HandleFunc("/keys", a.handlePublicKeys)
-	// OIDC issuance
 
 	a.router = router
 	return a, nil
