@@ -128,11 +128,8 @@ func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConf
 	}))
 
 	config := Config{
-		Issuer:  s.URL,
-		Storage: memory.New(logger),
-		Web: WebConfig{
-			Dir: "../../web",
-		},
+		Issuer:             s.URL,
+		Storage:            memory.New(logger),
 		Logger:             logger,
 		PrometheusRegistry: prometheus.NewRegistry(),
 	}
@@ -145,7 +142,6 @@ func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConf
 	if server, err = newServer(ctx, config, staticRotationStrategy(testKey)); err != nil {
 		t.Fatal(err)
 	}
-	server.skipApproval = true // Don't prompt for approval, just immediately redirect with code.
 
 	server.connector = &refresher{}
 

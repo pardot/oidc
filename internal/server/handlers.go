@@ -229,19 +229,8 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		if s.skipApproval {
-			s.sendCodeResponse(w, r, authReq)
-			return
-		}
-		client, err := s.storage.GetClient(authReq.ClientID)
-		if err != nil {
-			s.logger.Errorf("Failed to get client %q: %v", authReq.ClientID, err)
-			s.renderError(w, http.StatusInternalServerError, "Failed to retrieve client.")
-			return
-		}
-		if err := s.templates.approval(w, authReq.ID, authReq.Claims.Username, client.Name, authReq.Scopes); err != nil {
-			s.logger.Errorf("Server template error: %v", err)
-		}
+		s.sendCodeResponse(w, r, authReq)
+		return
 	case "POST":
 		if r.FormValue("approval") != "approve" {
 			s.renderError(w, http.StatusInternalServerError, "Approval rejected.")
@@ -310,7 +299,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 			// Implicit and hybrid flows that try to use the OOB redirect URI are
 			// rejected earlier. If we got here we're using the code flow.
 			if authReq.RedirectURI == redirectURIOOB {
-				if err := s.templates.oob(w, code.ID); err != nil {
+				if err := writeOob(w, code.ID); err != nil {
 					s.logger.Errorf("Server template error: %v", err)
 				}
 				return
@@ -768,7 +757,7 @@ func (s *Server) writeAccessToken(w http.ResponseWriter, idToken, accessToken, r
 }
 
 func (s *Server) renderError(w http.ResponseWriter, status int, description string) {
-	if err := s.templates.err(w, status, description); err != nil {
+	if err := writeError(w, status, description); err != nil {
 		s.logger.Errorf("Server template error: %v", err)
 	}
 }
