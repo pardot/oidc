@@ -55,6 +55,8 @@ type App struct {
 	logger           logrus.FieldLogger
 	sstore           sessions.Store
 	storage          storage.Storage
+	connector        connector.CallbackConnector
+	dserver          *server.Server
 	relyingPartyName string
 
 	router *mux.Router
@@ -83,6 +85,7 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, dcfg *server.Config, sstore 
 	}
 
 	a.router = router
+	a.dserver = dserver
 	return a, nil
 }
 
@@ -225,33 +228,129 @@ func (a *App) session(r *http.Request) (*sessions.Session, error) {
 func (a *App) genHandleClientAuthRequest(s *server.Server, st storage.Storage) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// this has to be threaded through all the requests to correctly
-		// generate the final step. Can store it in session, add to urls,
-		// whatever.
+		// generate the final step. Get it, and stuff it in the session
 		reqID, ok := server.AuthRequestID(r.Context())
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-
-		// TODO - draw the owl. This is where the webauthn & upstream stuff go
-
-		// This identity also needs ConnectorData with refresh token
-		returnedID := connector.Identity{}
-
-		// This is the final step. Fetch the request, then constuct a finalize
-		// redirect URL with the identity. The identity will be returned from the
-		// salesforce connector's HandleCallback method. In the middle we'll have to work that
-		// in to the webauthn flow
-		authReq, err := st.GetAuthRequest(reqID)
-		if err != nil {
+		sess, _ := a.session(r)
+		sess.Values["auth-request-id"] = reqID
+		if err := sess.Save(r, w); err != nil {
+			a.logger.WithError(err).Warn("Error saving session")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		redir, err := s.FinalizeLogin(returnedID, authReq)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
+
+		// Render the "index" page here. This should prompt the user to verify
+		// themselves using webauthn, or ask if they want to enroll
 	})
+}
+
+// handleEnrollRequest kicks off a flow to the upstream server, for the purposes
+// of enrolling the user. The "enroll" link should hit this
+func (a *App) handleEnrollRequest(w http.ResponseWriter, r *http.Request) {
+	sess, _ := a.session(r)
+	reqID, ok := sess.Values["auth-request-id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	lurl, err := a.connector.LoginURL(connector.Scopes{}, "https://us/callback", reqID.(string))
+	if err != nil {
+		a.logger.WithError(err).Error("Error creating upstream login URL")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, lurl, http.StatusTemporaryRedirect)
+}
+
+// handleEnrollCallback handles the callback from the upstream provider
+func (a *App) handleEnrollCallback(w http.ResponseWriter, r *http.Request) {
+	// Fetch the auth request ID from the session
+	sess, _ := a.session(r)
+	reqID, ok := sess.Values["auth-request-id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Get the connector to handle the callback. This will do the dance, and
+	// return the identity
+	id, err := a.connector.HandleCallback(connector.Scopes{}, r)
+	if err != nil {
+		a.logger.WithError(err).Error("Error processing upstream callback response")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Persist the webauth information at this step, linking the key to an identity
+	// TODO
+	// a.storage.CreateAuthKey(keyPubID, id)
+
+	// This is the final step. Fetch the request, then constuct a finalize
+	// redirect URL with the identity.
+	authReq, err := a.storage.GetAuthRequest(reqID.(string))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	redir, err := a.dserver.FinalizeLogin(id, authReq)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
+}
+
+// handleKeyLogin is called when we trigger auth from a known key
+func (a *App) handleKeyLogin(w http.ResponseWriter, r *http.Request) {
+	// Fetch the auth request ID from the session
+	sess, _ := a.session(r)
+	reqID, ok := sess.Values["auth-request-id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// fetch the refresh token for this key
+	// TODO
+	// keyData := a.storage.GetAuthKey(keyPubID)
+	identity := connector.Identity{UserID: "keydata.Identity"}
+
+	// Trigger a refresh to make sure the user is active, and fetch their latest
+	// identity
+	// TODO - break glass goes here. What do we do if ID provider down vs. reject?
+	rc, ok := a.connector.(connector.RefreshConnector)
+	if !ok {
+		// TODO - invalidate storage record, this key is unknown
+		// TODO - tell key to gtfo?
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	newID, err := rc.Refresh(r.Context(), connector.Scopes{}, identity)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Update the key association with the latest ID
+	// TODO
+	// a.storage.UpdateAuthKey(keyPubID, id)
+
+	// This is the final step. Fetch the request, then constuct a finalize
+	// redirect URL with the identity.
+	authReq, err := a.storage.GetAuthRequest(reqID.(string))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	redir, err := a.dserver.FinalizeLogin(newID, authReq)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
 }
