@@ -200,6 +200,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:59a32808dc731a74dba0fefcac75c5b66ebeeeadae04538b95b81c986722ccaa"
+  name = "github.com/ugorji/go"
+  packages = ["codec"]
+  pruneopts = "UT"
+  revision = "2c86ab75771cd005aba08da133ce0565a19c2587"
+
+[[projects]]
+  branch = "master"
   digest = "1:ebe6182358427e951fc3f0ff1f84a290c3f9cc9edd53d79d6a63db3065abb730"
   name = "golang.org/x/crypto"
   packages = [
@@ -300,6 +308,7 @@
     "github.com/pkg/errors",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/sirupsen/logrus",
+    "github.com/ugorji/go/codec",
     "golang.org/x/crypto/bcrypt",
     "golang.org/x/oauth2",
     "gopkg.in/square/go-jose.v2",

@@ -2,7 +2,7 @@ package deci
 
 import (
 	"context"
-	"crypto/rand"
+	"encoding/gob"
 	"encoding/json"
 	"html/template"
 	"net/http"
@@ -12,41 +12,29 @@ import (
 	"github.com/heroku/deci/internal/connector"
 	"github.com/heroku/deci/internal/server"
 	"github.com/heroku/deci/internal/storage"
+	"github.com/heroku/deci/internal/webauthn"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	sessionName          = "deci"
-	sessionChallengeKey  = "challenge"
-	challengeBytesLength = 32
+	sessionName         = "deci"
+	sessionChallengeKey = "challenge"
 )
 
 var (
-	acceptablePubKeyCredParams = []PublicKeyCredentialParameters{
+	acceptablePubKeyCredParams = []webauthn.PublicKeyCredentialParameters{
 		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmES256,
+			Type:      webauthn.PublicKeyCredentialTypePublicKey,
+			Algorithm: webauthn.COSEAlgorithmES256,
 		},
 		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmES384,
+			Type:      webauthn.PublicKeyCredentialTypePublicKey,
+			Algorithm: webauthn.COSEAlgorithmES384,
 		},
 		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmES512,
-		},
-		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmPS256,
-		},
-		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmPS384,
-		},
-		{
-			Type: PublicKeyCredentialTypePublicKey,
-			Alg:  COSEAlgorithmPS512,
+			Type:      webauthn.PublicKeyCredentialTypePublicKey,
+			Algorithm: webauthn.COSEAlgorithmES512,
 		},
 	}
 )
@@ -72,8 +60,15 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, dcfg *server.Config, sstore 
 	router := mux.NewRouter()
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 	router.HandleFunc("/", a.handleIndex)
-	router.HandleFunc("/credentialrequests", a.handleCreateCredentialRequest).Methods("POST")
-	router.HandleFunc("/credentials", a.handleCreateCredential).Methods("POST")
+
+	// Not trying to be RESTful here, as I think an RPC interface will be better at some point anyway
+	// See: <https://github.com/heroku/deci/issues/22>
+	router.HandleFunc("/CreateCredentialRequestOptions", a.handleCreateCredentialRequestOptions).Methods("POST")
+	router.HandleFunc("/CreateCredentialCreationOptions", a.handleCreateCredentialCreationOptions).Methods("POST")
+	router.HandleFunc("/EnrollPublicKey", a.handleEnrollPublicKey).Methods("POST")
+
+	gob.Register(&webauthn.PublicKeyCredentialCreationOptions{})
+	gob.Register(&webauthn.PublicKeyCredentialRequestOptions{})
 
 	dserver, err := server.NewServer(context.Background(), dcfg)
 	if err != nil {
@@ -97,9 +92,9 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	a.renderWithDefaultLayout(w, http.StatusOK, "./templates/index.html.tmpl", nil)
 }
 
-// handleCreateCredentialRequest kicks off the 'authentication ceremony'
+// handleCreateCredentialRequestOptions kicks off the 'authentication ceremony'
 // (request credentials from an already-enrolled key)
-func (a *App) handleCreateCredentialRequest(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateCredentialRequestOptions(w http.ResponseWriter, r *http.Request) {
 	session, err := a.session(r)
 	if err != nil {
 		a.logger.WithError(err).Error()
@@ -107,10 +102,8 @@ func (a *App) handleCreateCredentialRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// No user lookup is done here to avoid username enumeration:
-	// https://w3c.github.io/webauthn/#sctn-username-enumeration
-	challenge := make([]byte, challengeBytesLength)
-	if _, err := rand.Read(challenge); err != nil {
+	challenge, err := webauthn.NewChallenge()
+	if err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -123,23 +116,23 @@ func (a *App) handleCreateCredentialRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	body := &PublicKeyCredentialRequestOptions{
+	opts := &webauthn.PublicKeyCredentialRequestOptions{
 		Challenge:        challenge,
-		UserVerification: UserVerificationPreferred, // TODO: Make Required
+		UserVerification: webauthn.UserVerificationPreferred, // TODO: Make Required
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("content-type", "application/json")
-	if err := json.NewEncoder(w).Encode(body); err != nil {
+	if err := json.NewEncoder(w).Encode(opts); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }
 
-// handleCreateCredential kicks off the 'registration ceremony' (enroll a key
+// handleCreateCredentialCreationOptions kicks off the 'registration ceremony' (enroll a key
 // for a logged in user)
-func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateCredentialCreationOptions(w http.ResponseWriter, r *http.Request) {
 	// TODO: Somehow authenticate the user using upstream connector
 
 	session, err := a.session(r)
@@ -149,10 +142,8 @@ func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// No user lookup is done here to avoid username enumeration:
-	// https://w3c.github.io/webauthn/#sctn-username-enumeration
-	challenge := make([]byte, challengeBytesLength)
-	if _, err := rand.Read(challenge); err != nil {
+	challenge, err := webauthn.NewChallenge()
+	if err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -165,31 +156,63 @@ func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body := &PublicKeyCredentialCreationOptions{
-		RP: PublicKeyCredentialRpEntity{
+	opts := &webauthn.PublicKeyCredentialCreationOptions{
+		RP: webauthn.PublicKeyCredentialRpEntity{
 			Name: a.relyingPartyName,
 		},
-		User: PublicKeyCredentialUserEntity{
+		User: webauthn.PublicKeyCredentialUserEntity{
 			Id:          []byte("TODO"),
 			Name:        "TODO",
 			DisplayName: "TODO",
 		},
 		Challenge:        challenge,
 		PubKeyCredParams: acceptablePubKeyCredParams,
-		AuthenticatorSelection: AuthenticatorSelectionCriteria{
+		AuthenticatorSelection: webauthn.AuthenticatorSelectionCriteria{
 			RequireResidentKey: true,
-			UserVerification:   UserVerificationPreferred, // TODO: Make required
+			UserVerification:   webauthn.UserVerificationPreferred, // TODO: Make required
 		},
-		Attestation: AttestationConveyancePreferenceNone, // TODO: Is this right?
+		Attestation: webauthn.AttestationConveyancePreferenceNone,
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("content-type", "application/json")
-	if err := json.NewEncoder(w).Encode(body); err != nil {
+	if err := json.NewEncoder(w).Encode(opts); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+}
+
+func (a *App) handleEnrollPublicKey(w http.ResponseWriter, r *http.Request) {
+	// TODO: Somehow authenticate the user using upstream connector
+	session, err := a.session(r)
+	if err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	publicKeyCredential := new(webauthn.PublicKeyCredential)
+	if err := json.NewDecoder(r.Body).Decode(publicKeyCredential); err != nil {
+		a.logger.WithError(err).Error("failed to decode PublicKeyCredential from request body")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	a.logger.Infof("%#v", publicKeyCredential.Response.AttestationObject)
+	// TODO
+	// delete(session.Values, sessionChallgenKey)
+
+	if err := session.Save(r, w); err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// TODO: Validate challenge and other options
+
+	w.WriteHeader(http.StatusCreated)
+	w.Header().Set("content-type", "application/json")
 }
 
 func (a *App) renderWithDefaultLayout(w http.ResponseWriter, code int, filename string, data interface{}) {

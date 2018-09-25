@@ -76,3 +76,7 @@
 [[constraint]]
   name = "github.com/kylelemons/godebug"
   branch = "master"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/ugorji/go"

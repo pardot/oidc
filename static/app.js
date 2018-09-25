@@ -1,6 +1,39 @@
+function enrollPublicKey(publicKeyCredential) {
+  var req = new XMLHttpRequest();
+  req.open("POST", "/EnrollPublicKey", true);
+  req.setRequestHeader("content-type", "application/json");
+  req.responseType = "json"
+  req.onload = function() {
+    if (req.status == 201) {
+      console.log("Successful");
+    } else {
+      // TODO: Do something more user-friendly here
+      console.log("Credential enroll failed");
+    }
+  };
+  req.onerror = function() {
+    // TODO: Do something more user-friendly here
+    console.log("Credential enroll failed");
+  };
+
+  req.send(jsonifyPublicKey(publicKeyCredential));
+}
+
+function jsonifyPublicKey(publicKeyCredential) {
+  return JSON.stringify({
+    id: publicKeyCredential.id,
+    rawId: abtob(publicKeyCredential.rawId),
+    type: publicKeyCredential.type,
+    response: {
+      clientDataJSON: abtob(publicKeyCredential.response.clientDataJSON),
+      attestationObject: abtob(publicKeyCredential.response.attestationObject)
+    }
+  })
+}
+
 function attemptGetCredential() {
   var req = new XMLHttpRequest();
-  req.open("POST", "/credentialrequests", true);
+  req.open("POST", "/CreateCredentialRequestOptions", true);
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
@@ -10,8 +43,8 @@ function attemptGetCredential() {
 
       navigator.credentials.get({
         publicKey: publicKeyCredentialRequestOptions
-      }).then(function(credential) {
-        console.log(credential);
+      }).then(function(publicKeyCredential) {
+        console.log(publicKeyCredential);
       }).catch(function(err) {
         // TODO
         console.log("Credential get failed");
@@ -32,7 +65,7 @@ function attemptGetCredential() {
 
 function attemptRegistration() {
   var req = new XMLHttpRequest();
-  req.open("POST", "/credentials", true);
+  req.open("POST", "/CreateCredentialCreationOptions", true);
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
@@ -43,8 +76,9 @@ function attemptRegistration() {
 
       navigator.credentials.create({
         publicKey: publicKeyCredentialCreationOptions
-      }).then(function(credential) {
-        console.log(credential);
+      }).then(function(publicKeyCredential) {
+        enrollPublicKey(publicKeyCredential)
+        console.log(publicKeyCredential);
       }).catch(function(err) {
         // TODO
         console.log("Credential creation failed");
