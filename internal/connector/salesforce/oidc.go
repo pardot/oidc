@@ -17,11 +17,6 @@ import (
 	"github.com/heroku/deci/internal/connector"
 )
 
-var (
-	_ connector.CallbackConnector = (*SalesforceConnector)(nil)
-	_ connector.RefreshConnector  = (*SalesforceConnector)(nil)
-)
-
 type SalesforceConnector struct {
 	redirectURI  string
 	oauth2Config *oauth2.Config

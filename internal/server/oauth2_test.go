@@ -149,10 +149,10 @@ func TestParseAuthorizationRequest(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			httpServer, server := newTestServer(ctx, t, func(c *Config) {
+			httpServer, server := newTestServer(ctx, t, noopCreator, func(c *Config) {
 				c.SupportedResponseTypes = tc.supportedResponseTypes
 				c.Storage = storage.WithStaticClients(c.Storage, tc.clients)
-			})
+			}, nil)
 			defer httpServer.Close()
 
 			params := url.Values{}

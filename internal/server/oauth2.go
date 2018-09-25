@@ -22,7 +22,6 @@ import (
 	jose "gopkg.in/square/go-jose.v2"
 
 	"github.com/heroku/deci/internal/connector"
-	"github.com/heroku/deci/internal/server/internal"
 	"github.com/heroku/deci/internal/storage"
 )
 
@@ -107,7 +106,6 @@ const (
 	scopeGroups            = "groups"
 	scopeEmail             = "email"
 	scopeProfile           = "profile"
-	scopeFederatedID       = "federated:id"
 	scopeCrossClientPrefix = "audience:server:client_id:"
 )
 
@@ -265,7 +263,7 @@ type federatedIDClaims struct {
 	UserID      string `json:"user_id,omitempty"`
 }
 
-func (s *Server) newIDToken(clientID string, claims storage.Claims, scopes []string, nonce, accessToken, connID string) (idToken string, expiry time.Time, err error) {
+func (s *Server) newIDToken(clientID string, claims storage.Claims, scopes []string, nonce, accessToken string) (idToken string, expiry time.Time, err error) {
 	keys, err := s.storage.GetKeys()
 	if err != nil {
 		s.logger.Errorf("Failed to get keys: %v", err)
@@ -284,20 +282,9 @@ func (s *Server) newIDToken(clientID string, claims storage.Claims, scopes []str
 	issuedAt := s.now()
 	expiry = issuedAt.Add(s.idTokensValidFor)
 
-	sub := &internal.IDTokenSubject{
-		UserId: claims.UserID,
-		ConnId: connID,
-	}
-
-	subjectString, err := internal.Marshal(sub)
-	if err != nil {
-		s.logger.Errorf("failed to marshal offline session ID: %v", err)
-		return "", expiry, fmt.Errorf("failed to marshal offline session ID: %v", err)
-	}
-
 	tok := idTokenClaims{
 		Issuer:   s.issuerURL.String(),
-		Subject:  subjectString,
+		Subject:  claims.UserID,
 		Nonce:    nonce,
 		Expiry:   expiry.Unix(),
 		IssuedAt: issuedAt.Unix(),
@@ -321,11 +308,6 @@ func (s *Server) newIDToken(clientID string, claims storage.Claims, scopes []str
 			tok.Groups = claims.Groups
 		case scope == scopeProfile:
 			tok.Name = claims.Username
-		case scope == scopeFederatedID:
-			tok.FederatedIDClaims = &federatedIDClaims{
-				ConnectorID: connID,
-				UserID:      claims.UserID,
-			}
 		default:
 			peerID, ok := parseCrossClientScope(scope)
 			if !ok {
@@ -418,7 +400,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req storage.AuthReq
 		switch scope {
 		case scopeOpenID:
 			hasOpenIDScope = true
-		case scopeOfflineAccess, scopeEmail, scopeProfile, scopeGroups, scopeFederatedID:
+		case scopeOfflineAccess, scopeEmail, scopeProfile, scopeGroups:
 		default:
 			peerID, ok := parseCrossClientScope(scope)
 			if !ok {

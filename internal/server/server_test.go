@@ -23,12 +23,10 @@ import (
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	jose "gopkg.in/square/go-jose.v2"
 
 	"github.com/heroku/deci/internal/connector"
-	"github.com/heroku/deci/internal/connector/mock"
 	"github.com/heroku/deci/internal/storage"
 	"github.com/heroku/deci/internal/storage/memory"
 )
@@ -79,7 +77,51 @@ var logger = &logrus.Logger{
 	Level:     logrus.DebugLevel,
 }
 
-func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Config)) (*httptest.Server, *Server) {
+type refresher struct {
+	newID *connector.Identity
+}
+
+func (r *refresher) Refresh(ctx context.Context, s connector.Scopes, identity connector.Identity) (connector.Identity, error) {
+	if r.newID != nil {
+		return *r.newID, nil
+	}
+	return identity, nil
+}
+
+// authCreator can be called to generate a auth handler for the given server
+type authCreator func(s *Server) http.Handler
+
+var noopCreator = func(s *Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return
+	})
+}
+
+var finalizeCreator = func(s *Server) http.Handler {
+	return s.AuthorizationHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// this has to be threaded through all the requests to correctly generate the final step
+		reqID, ok := AuthRequestID(r.Context())
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		// this is the final step. Fetch the request, then constuct a finalize
+		// redirect URL with the identity
+		authReq, err := s.storage.GetAuthRequest(reqID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		redir, err := s.FinalizeLogin(connector.Identity{}, authReq)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
+	}))
+}
+
+func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConfig func(c *Config), updateServer func(s *Server)) (*httptest.Server, *Server) {
 	var server *Server
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		server.ServeHTTP(w, r)
@@ -99,37 +141,41 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 	}
 	s.URL = config.Issuer
 
-	connector := storage.Connector{
-		ID:              "mock",
-		Type:            "mockCallback",
-		Name:            "Mock",
-		ResourceVersion: "1",
-	}
-	if err := config.Storage.CreateConnector(connector); err != nil {
-		t.Fatalf("create connector: %v", err)
-	}
-
 	var err error
 	if server, err = newServer(ctx, config, staticRotationStrategy(testKey)); err != nil {
 		t.Fatal(err)
 	}
 	server.skipApproval = true // Don't prompt for approval, just immediately redirect with code.
+
+	server.connector = &refresher{}
+
+	issuerURL, err := url.Parse(config.Issuer)
+	if err != nil {
+		t.Fatal("server: can't parse issuer URL")
+	}
+
+	server.mux.Handle(issuerURL.Path+"/auth", ac(server))
+
+	if updateServer != nil {
+		updateServer(server)
+	}
+
 	return s, server
 }
 
 func TestNewTestServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	newTestServer(ctx, t, nil)
+	newTestServer(ctx, t, finalizeCreator, nil, nil)
 }
 
 func TestDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, _ := newTestServer(ctx, t, func(c *Config) {
+	httpServer, _ := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 		c.Issuer = c.Issuer + "/non-root-path"
-	})
+	}, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -176,7 +222,8 @@ func TestOAuth2CodeFlow(t *testing.T) {
 	idTokensValidFor := time.Second * 30
 
 	// Connector used by the tests.
-	var conn *mock.Callback
+	// TODO(lstoll) - implement me, for refresh tests
+	//var conn connector.Connector
 
 	oidcConfig := &oidc.Config{SkipClientIDCheck: true}
 
@@ -186,6 +233,8 @@ func TestOAuth2CodeFlow(t *testing.T) {
 		scopes []string
 		// handleToken provides the OAuth2 token response for the integration test.
 		handleToken func(context.Context, *oidc.Provider, *oauth2.Config, *oauth2.Token) error
+		// modifyServer can be used to change the server before the test runs
+		modifyServer func(s *Server)
 	}{
 		{
 			name: "verify ID Token",
@@ -364,6 +413,17 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			// This test ensures that the connector.RefreshConnector interface is being
 			// used when clients request a refresh token.
 			name: "refresh with identity changes",
+			modifyServer: func(s *Server) {
+				s.connector = &refresher{
+					newID: &connector.Identity{
+						UserID:        "fooid",
+						Username:      "foo",
+						Email:         "foo@bar.com",
+						EmailVerified: true,
+						Groups:        []string{"foo", "bar"},
+					},
+				}
+			},
 			handleToken: func(ctx context.Context, p *oidc.Provider, config *oauth2.Config, token *oauth2.Token) error {
 				// have to use time.Now because the OAuth2 package uses it.
 				token.Expiry = time.Now().Add(time.Second * -10)
@@ -378,7 +438,6 @@ func TestOAuth2CodeFlow(t *testing.T) {
 					EmailVerified: true,
 					Groups:        []string{"foo", "bar"},
 				}
-				conn.Identity = ident
 
 				type claims struct {
 					Username      string   `json:"name"`
@@ -419,15 +478,13 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			defer cancel()
 
 			// Setup a dex server.
-			httpServer, s := newTestServer(ctx, t, func(c *Config) {
+			// TODO - need a better creator
+			httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 				c.Issuer = c.Issuer + "/non-root-path"
 				c.Now = now
 				c.IDTokensValidFor = idTokensValidFor
-			})
+			}, tc.modifyServer)
 			defer httpServer.Close()
-
-			mockConn := s.connectors["mock"]
-			conn = mockConn.Connector.(*mock.Callback)
 
 			// Query server's provider metadata.
 			p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -544,10 +601,10 @@ func TestOAuth2ImplicitFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
+	httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 		// Enable support for the implicit flow.
 		c.SupportedResponseTypes = []string{"code", "token", "id_token"}
-	})
+	}, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -678,9 +735,9 @@ func TestCrossClientScopes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
+	httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 		c.Issuer = c.Issuer + "/non-root-path"
-	})
+	}, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -800,9 +857,9 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
+	httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 		c.Issuer = c.Issuer + "/non-root-path"
-	})
+	}, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -917,100 +974,6 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	}
 }
 
-func TestPasswordDB(t *testing.T) {
-	s := memory.New(logger)
-	conn := newPasswordDB(s)
-
-	pw := "hi"
-
-	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	s.CreatePassword(storage.Password{
-		Email:    "jane@example.com",
-		Username: "jane",
-		UserID:   "foobar",
-		Hash:     h,
-	})
-
-	tests := []struct {
-		name         string
-		username     string
-		password     string
-		wantIdentity connector.Identity
-		wantInvalid  bool
-		wantErr      bool
-	}{
-		{
-			name:     "valid password",
-			username: "jane@example.com",
-			password: pw,
-			wantIdentity: connector.Identity{
-				Email:         "jane@example.com",
-				Username:      "jane",
-				UserID:        "foobar",
-				EmailVerified: true,
-			},
-		},
-		{
-			name:        "unknown user",
-			username:    "john@example.com",
-			password:    pw,
-			wantInvalid: true,
-		},
-		{
-			name:        "invalid password",
-			username:    "jane@example.com",
-			password:    "not the correct password",
-			wantInvalid: true,
-		},
-	}
-
-	for _, tc := range tests {
-		ident, valid, err := conn.Login(context.Background(), connector.Scopes{}, tc.username, tc.password)
-		if err != nil {
-			if !tc.wantErr {
-				t.Errorf("%s: %v", tc.name, err)
-			}
-			continue
-		}
-
-		if tc.wantErr {
-			t.Errorf("%s: expected error", tc.name)
-			continue
-		}
-
-		if !valid {
-			if !tc.wantInvalid {
-				t.Errorf("%s: expected valid password", tc.name)
-			}
-			continue
-		}
-
-		if tc.wantInvalid {
-			t.Errorf("%s: expected invalid password", tc.name)
-			continue
-		}
-
-		if diff := pretty.Compare(tc.wantIdentity, ident); diff != "" {
-			t.Errorf("%s: %s", tc.name, diff)
-		}
-	}
-
-}
-
-func TestPasswordDBUsernamePrompt(t *testing.T) {
-	s := memory.New(logger)
-	conn := newPasswordDB(s)
-
-	expected := "Email Address"
-	if actual := conn.Prompt(); actual != expected {
-		t.Errorf("expected %v, got %v", expected, actual)
-	}
-}
-
 type storageWithKeysTrigger struct {
 	storage.Storage
 	f func()
@@ -1096,9 +1059,9 @@ func TestRefreshTokenFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
+	httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 		c.Now = now
-	})
+	}, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)

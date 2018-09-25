@@ -53,7 +53,7 @@ type Storage interface {
 	CreateRefresh(r RefreshToken) error
 	CreatePassword(p Password) error
 	CreateOfflineSessions(s OfflineSessions) error
-	CreateConnector(c Connector) error
+	// CreateConnector(c Connector) error
 
 	// TODO(ericchiang): return (T, bool, error) so we can indicate not found
 	// requests that way instead of using ErrNotFound.
@@ -64,12 +64,12 @@ type Storage interface {
 	GetRefresh(id string) (RefreshToken, error)
 	GetPassword(email string) (Password, error)
 	GetOfflineSessions(userID string, connID string) (OfflineSessions, error)
-	GetConnector(id string) (Connector, error)
+	// GetConnector(id string) (Connector, error)
 
 	ListClients() ([]Client, error)
 	ListRefreshTokens() ([]RefreshToken, error)
 	ListPasswords() ([]Password, error)
-	ListConnectors() ([]Connector, error)
+	// ListConnectors() ([]Connector, error)
 
 	// Delete methods MUST be atomic.
 	DeleteAuthRequest(id string) error
@@ -78,7 +78,7 @@ type Storage interface {
 	DeleteRefresh(id string) error
 	DeletePassword(email string) error
 	DeleteOfflineSessions(userID string, connID string) error
-	DeleteConnector(id string) error
+	// DeleteConnector(id string) error
 
 	// Update methods take a function for updating an object then performs that update within
 	// a transaction. "updater" functions may be called multiple times by a single update call.
@@ -100,7 +100,7 @@ type Storage interface {
 	UpdateRefreshToken(id string, updater func(r RefreshToken) (RefreshToken, error)) error
 	UpdatePassword(email string, updater func(p Password) (Password, error)) error
 	UpdateOfflineSessions(userID string, connID string, updater func(s OfflineSessions) (OfflineSessions, error)) error
-	UpdateConnector(id string, updater func(c Connector) (Connector, error)) error
+	// UpdateConnector(id string, updater func(c Connector) (Connector, error)) error
 
 	// GarbageCollect deletes all expired AuthCodes and AuthRequests.
 	GarbageCollect(now time.Time) (GCResult, error)
@@ -178,9 +178,8 @@ type AuthRequest struct {
 	// with a backend.
 	Claims Claims
 
-	// The connector used to login the user and any data the connector wishes to persists.
-	// Set when the user authenticates.
-	ConnectorID   string
+	// ConnectorData is persisted across the authorization, and can be accessed
+	// by the connector. This can be used for the refresh token
 	ConnectorData []byte
 }
 
