@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	jose "gopkg.in/square/go-jose.v2"
 
 	"github.com/heroku/deci/internal/connector"
-	"github.com/heroku/deci/internal/server/internal"
+	"github.com/heroku/deci/internal/serializedpb"
 	"github.com/heroku/deci/internal/storage"
 )
 
@@ -136,273 +136,55 @@ func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 	}), nil
 }
 
-// handleAuthorization handles the OAuth2 auth endpoint.
-func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
-	authReq, err := s.parseAuthorizationRequest(r)
-	if err != nil {
-		s.logger.Errorf("Failed to parse authorization request: %v", err)
-		if handler, ok := err.Handle(); ok {
-			// client_id and redirect_uri checked out and we can redirect back to
-			// the client with the error.
-			handler.ServeHTTP(w, r)
-			return
-		}
+// AuthorizationHandler wraps a http handler that performs the actual
+// authorization, passing it the storage.AuthRequest that it is authorizing for
+// in the context. This can be retrieved with AuthRequestID. The ID should be
+// passed through whatever underlying authorization scheme is used, then used to
+// rehydrate the AuthRequest when calling FinalizeLogin. The path should be what
+// the client is configured to request from (i.e `/auth`, as is currently
+// hardcoded in the discovery information).
+func (s *Server) AuthorizationHandler(wrap http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authReq, err := s.parseAuthorizationRequest(r)
+		if err != nil {
+			s.logger.Errorf("Failed to parse authorization request: %v", err)
+			if handler, ok := err.Handle(); ok {
+				// client_id and redirect_uri checked out and we can redirect back to
+				// the client with the error.
+				handler.ServeHTTP(w, r)
+				return
+			}
 
-		// Otherwise render the error to the user.
-		//
-		// TODO(ericchiang): Should we just always render the error?
-		s.renderError(w, err.Status(), err.Error())
-		return
-	}
-
-	// TODO(ericchiang): Create this authorization request later in the login flow
-	// so users don't hit "not found" database errors if they wait at the login
-	// screen too long.
-	//
-	// See: https://github.com/heroku/deci/internal/issues/646
-	authReq.Expiry = s.now().Add(24 * time.Hour) // Totally arbitrary value.
-	if err := s.storage.CreateAuthRequest(authReq); err != nil {
-		s.logger.Errorf("Failed to create authorization request: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Failed to connect to the database.")
-		return
-	}
-
-	connectors, e := s.storage.ListConnectors()
-	if e != nil {
-		s.logger.Errorf("Failed to get list of connectors: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Failed to retrieve connector list.")
-		return
-	}
-
-	if len(connectors) == 1 {
-		for _, c := range connectors {
-			// TODO(ericchiang): Make this pass on r.URL.RawQuery and let something latter
-			// on create the auth request.
-			http.Redirect(w, r, s.absPath("/auth", c.ID)+"?req="+authReq.ID, http.StatusFound)
-			return
-		}
-	}
-
-	connectorInfos := make([]connectorInfo, len(connectors))
-	i := 0
-	for _, conn := range connectors {
-		connectorInfos[i] = connectorInfo{
-			ID:   conn.ID,
-			Name: conn.Name,
-			// TODO(ericchiang): Make this pass on r.URL.RawQuery and let something latter
-			// on create the auth request.
-			URL: s.absPath("/auth", conn.ID) + "?req=" + authReq.ID,
-		}
-		i++
-	}
-
-	if err := s.templates.login(w, connectorInfos); err != nil {
-		s.logger.Errorf("Server template error: %v", err)
-	}
-}
-
-func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
-	connID := mux.Vars(r)["connector"]
-	conn, err := s.getConnector(connID)
-	if err != nil {
-		s.logger.Errorf("Failed to create authorization request: %v", err)
-		s.renderError(w, http.StatusBadRequest, "Requested resource does not exist")
-		return
-	}
-
-	authReqID := r.FormValue("req")
-
-	authReq, err := s.storage.GetAuthRequest(authReqID)
-	if err != nil {
-		s.logger.Errorf("Failed to get auth request: %v", err)
-		if err == storage.ErrNotFound {
-			s.renderError(w, http.StatusBadRequest, "Login session expired.")
-		} else {
-			s.renderError(w, http.StatusInternalServerError, "Database error.")
-		}
-		return
-	}
-
-	// Set the connector being used for the login.
-	if authReq.ConnectorID != connID {
-		updater := func(a storage.AuthRequest) (storage.AuthRequest, error) {
-			a.ConnectorID = connID
-			return a, nil
-		}
-		if err := s.storage.UpdateAuthRequest(authReqID, updater); err != nil {
-			s.logger.Errorf("Failed to set connector ID on auth request: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Database error.")
-			return
-		}
-	}
-
-	scopes := parseScopes(authReq.Scopes)
-	showBacklink := len(s.connectors) > 1
-
-	switch r.Method {
-	case "GET":
-		switch conn := conn.Connector.(type) {
-		case connector.CallbackConnector:
-			// Use the auth request ID as the "state" token.
+			// Otherwise render the error to the user.
 			//
-			// TODO(ericchiang): Is this appropriate or should we also be using a nonce?
-			callbackURL, err := conn.LoginURL(scopes, s.absURL("/callback"), authReqID)
-			if err != nil {
-				s.logger.Errorf("Connector %q returned error when creating callback: %v", connID, err)
-				s.renderError(w, http.StatusInternalServerError, "Login error.")
-				return
-			}
-			http.Redirect(w, r, callbackURL, http.StatusFound)
-		case connector.PasswordConnector:
-			if err := s.templates.password(w, r.URL.String(), "", usernamePrompt(conn), false, showBacklink); err != nil {
-				s.logger.Errorf("Server template error: %v", err)
-			}
-		case connector.SAMLConnector:
-			action, value, err := conn.POSTData(scopes, authReqID)
-			if err != nil {
-				s.logger.Errorf("Creating SAML data: %v", err)
-				s.renderError(w, http.StatusInternalServerError, "Connector Login Error")
-				return
-			}
-
-			// TODO(ericchiang): Don't inline this.
-			fmt.Fprintf(w, `<!DOCTYPE html>
-			  <html lang="en">
-			  <head>
-			    <meta http-equiv="content-type" content="text/html; charset=utf-8">
-			    <title>SAML login</title>
-			  </head>
-			  <body>
-			    <form method="post" action="%s" >
-				    <input type="hidden" name="SAMLRequest" value="%s" />
-				    <input type="hidden" name="RelayState" value="%s" />
-			    </form>
-				<script>
-				    document.forms[0].submit();
-				</script>
-			  </body>
-			  </html>`, action, value, authReqID)
-		default:
-			s.renderError(w, http.StatusBadRequest, "Requested resource does not exist.")
-		}
-	case "POST":
-		passwordConnector, ok := conn.Connector.(connector.PasswordConnector)
-		if !ok {
-			s.renderError(w, http.StatusBadRequest, "Requested resource does not exist.")
+			// TODO(ericchiang): Should we just always render the error?
+			s.renderError(w, err.Status(), err.Error())
 			return
 		}
 
-		username := r.FormValue("login")
-		password := r.FormValue("password")
-
-		identity, ok, err := passwordConnector.Login(r.Context(), scopes, username, password)
-		if err != nil {
-			s.logger.Errorf("Failed to login user: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Login error.")
-			return
-		}
-		if !ok {
-			if err := s.templates.password(w, r.URL.String(), username, usernamePrompt(passwordConnector), true, showBacklink); err != nil {
-				s.logger.Errorf("Server template error: %v", err)
-			}
-			return
-		}
-		redirectURL, err := s.finalizeLogin(identity, authReq, conn.Connector)
-		if err != nil {
-			s.logger.Errorf("Failed to finalize login: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Login error.")
+		// TODO(ericchiang): Create this authorization request later in the login flow
+		// so users don't hit "not found" database errors if they wait at the login
+		// screen too long.
+		//
+		// See: https://github.com/heroku/deci/internal/issues/646
+		authReq.Expiry = s.now().Add(24 * time.Hour) // Totally arbitrary value.
+		if err := s.storage.CreateAuthRequest(authReq); err != nil {
+			s.logger.Errorf("Failed to create authorization request: %v", err)
+			s.renderError(w, http.StatusInternalServerError, "Failed to connect to the database.")
 			return
 		}
 
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
-	default:
-		s.renderError(w, http.StatusBadRequest, "Unsupported request method.")
-	}
+		ctx := context.WithValue(r.Context(), contextKeyAuthRequestID, authReq.ID)
+
+		wrap.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request) {
-	var authID string
-	switch r.Method {
-	case "GET": // OAuth2 callback
-		if authID = r.URL.Query().Get("state"); authID == "" {
-			s.renderError(w, http.StatusBadRequest, "User session error.")
-			return
-		}
-	case "POST": // SAML POST binding
-		if authID = r.PostFormValue("RelayState"); authID == "" {
-			s.renderError(w, http.StatusBadRequest, "User session error.")
-			return
-		}
-	default:
-		s.renderError(w, http.StatusBadRequest, "Method not supported")
-		return
-	}
-
-	authReq, err := s.storage.GetAuthRequest(authID)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.logger.Errorf("Invalid 'state' parameter provided: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-			return
-		}
-		s.logger.Errorf("Failed to get auth request: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Database error.")
-		return
-	}
-
-	if connID := mux.Vars(r)["connector"]; connID != "" && connID != authReq.ConnectorID {
-		s.logger.Errorf("Connector mismatch: authentication started with id %q, but callback for id %q was triggered", authReq.ConnectorID, connID)
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	conn, err := s.getConnector(authReq.ConnectorID)
-	if err != nil {
-		s.logger.Errorf("Failed to get connector with id %q : %v", authReq.ConnectorID, err)
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	var identity connector.Identity
-	switch conn := conn.Connector.(type) {
-	case connector.CallbackConnector:
-		if r.Method != "GET" {
-			s.logger.Errorf("SAML request mapped to OAuth2 connector")
-			s.renderError(w, http.StatusBadRequest, "Invalid request")
-			return
-		}
-		identity, err = conn.HandleCallback(parseScopes(authReq.Scopes), r)
-	case connector.SAMLConnector:
-		if r.Method != "POST" {
-			s.logger.Errorf("OAuth2 request mapped to SAML connector")
-			s.renderError(w, http.StatusBadRequest, "Invalid request")
-			return
-		}
-		identity, err = conn.HandlePOST(parseScopes(authReq.Scopes), r.PostFormValue("SAMLResponse"), authReq.ID)
-	default:
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	if err != nil {
-		s.logger.Errorf("Failed to authenticate: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Failed to return user's identity.")
-		return
-	}
-
-	redirectURL, err := s.finalizeLogin(identity, authReq, conn.Connector)
-	if err != nil {
-		s.logger.Errorf("Failed to finalize login: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Login error.")
-		return
-	}
-
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
-}
-
-// finalizeLogin associates the user's identity with the current AuthRequest, then returns
-// the approval page's path.
-func (s *Server) finalizeLogin(identity connector.Identity, authReq storage.AuthRequest, conn connector.Connector) (string, error) {
+// FinalizeLogin associates the user's identity with the current AuthRequest
+// (Can be fetched from storage.Request(authReqID), where the authReqID is the
+// ID that was retrieved from the context in the initial handler), then returns
+// the approval page's path. The user should be redirected to this URL.
+func (s *Server) FinalizeLogin(identity connector.Identity, authReq storage.AuthRequest) (string, error) {
 	claims := storage.Claims{
 		UserID:        identity.UserID,
 		Username:      identity.Username,
@@ -426,8 +208,8 @@ func (s *Server) finalizeLogin(identity connector.Identity, authReq storage.Auth
 		email = email + " (unverified)"
 	}
 
-	s.logger.Infof("login successful: connector %q, username=%q, email=%q, groups=%q",
-		authReq.ConnectorID, claims.Username, email, claims.Groups)
+	s.logger.Infof("login successful: username=%q, email=%q, groups=%q",
+		claims.Username, email, claims.Groups)
 
 	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + authReq.ID, nil
 }
@@ -512,7 +294,6 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 			code = storage.AuthCode{
 				ID:            storage.NewID(),
 				ClientID:      authReq.ClientID,
-				ConnectorID:   authReq.ConnectorID,
 				Nonce:         authReq.Nonce,
 				Scopes:        authReq.Scopes,
 				Claims:        authReq.Claims,
@@ -539,7 +320,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 		case responseTypeIDToken:
 			implicitOrHybrid = true
 			var err error
-			idToken, idTokenExpiry, err = s.newIDToken(authReq.ClientID, authReq.Claims, authReq.Scopes, authReq.Nonce, accessToken, authReq.ConnectorID)
+			idToken, idTokenExpiry, err = s.newIDToken(authReq.ClientID, authReq.Claims, authReq.Scopes, authReq.Nonce, accessToken)
 			if err != nil {
 				s.logger.Errorf("failed to create ID token: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -661,7 +442,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 	}
 
 	accessToken := storage.NewID()
-	idToken, expiry, err := s.newIDToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, accessToken, authCode.ConnectorID)
+	idToken, expiry, err := s.newIDToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, accessToken)
 	if err != nil {
 		s.logger.Errorf("failed to create ID token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -675,17 +456,11 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 	}
 
 	reqRefresh := func() bool {
-		// Ensure the connector supports refresh tokens.
-		//
-		// Connectors like `saml` do not implement RefreshConnector.
-		conn, err := s.getConnector(authCode.ConnectorID)
-		if err != nil {
-			s.logger.Errorf("connector with ID %q not found: %v", authCode.ConnectorID, err)
-			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
+		if s.connector == nil {
 			return false
 		}
 
-		_, ok := conn.Connector.(connector.RefreshConnector)
+		_, ok := s.connector.(connector.RefreshConnector)
 		if !ok {
 			return false
 		}
@@ -711,11 +486,11 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 			CreatedAt:     s.now(),
 			LastUsed:      s.now(),
 		}
-		token := &internal.RefreshToken{
+		token := &serializedpb.RefreshToken{
 			RefreshId: refresh.ID,
 			Token:     refresh.Token,
 		}
-		if refreshToken, err = internal.Marshal(token); err != nil {
+		if refreshToken, err = serializedpb.Marshal(token); err != nil {
 			s.logger.Errorf("failed to marshal refresh token: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 			return
@@ -808,15 +583,15 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 
-	token := new(internal.RefreshToken)
-	if err := internal.Unmarshal(code, token); err != nil {
+	token := new(serializedpb.RefreshToken)
+	if err := serializedpb.Unmarshal(code, token); err != nil {
 		// For backward compatibility, assume the refresh_token is a raw refresh token ID
 		// if it fails to decode.
 		//
 		// Because refresh_token values that aren't unmarshable were generated by servers
 		// that don't have a Token value, we'll still reject any attempts to claim a
 		// refresh_token twice.
-		token = &internal.RefreshToken{RefreshId: code, Token: ""}
+		token = &serializedpb.RefreshToken{RefreshId: code, Token: ""}
 	}
 
 	refresh, err := s.storage.GetRefresh(token.RefreshId)
@@ -871,12 +646,6 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		scopes = requestedScopes
 	}
 
-	conn, err := s.getConnector(refresh.ConnectorID)
-	if err != nil {
-		s.logger.Errorf("connector with ID %q not found: %v", refresh.ConnectorID, err)
-		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
-		return
-	}
 	ident := connector.Identity{
 		UserID:        refresh.Claims.UserID,
 		Username:      refresh.Claims.Username,
@@ -891,7 +660,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 	//
 	// TODO(ericchiang): We may want a strict mode where connectors that don't implement
 	// this interface can't perform refreshing.
-	if refreshConn, ok := conn.Connector.(connector.RefreshConnector); ok {
+	if refreshConn, ok := s.connector.(connector.RefreshConnector); ok {
 		newIdent, err := refreshConn.Refresh(r.Context(), parseScopes(scopes), ident)
 		if err != nil {
 			s.logger.Errorf("failed to refresh identity: %v", err)
@@ -910,18 +679,18 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 	}
 
 	accessToken := storage.NewID()
-	idToken, expiry, err := s.newIDToken(client.ID, claims, scopes, refresh.Nonce, accessToken, refresh.ConnectorID)
+	idToken, expiry, err := s.newIDToken(client.ID, claims, scopes, refresh.Nonce, accessToken)
 	if err != nil {
 		s.logger.Errorf("failed to create ID token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 
-	newToken := &internal.RefreshToken{
+	newToken := &serializedpb.RefreshToken{
 		RefreshId: refresh.ID,
 		Token:     storage.NewID(),
 	}
-	rawNewToken, err := internal.Marshal(newToken)
+	rawNewToken, err := serializedpb.Marshal(newToken)
 	if err != nil {
 		s.logger.Errorf("failed to marshal refresh token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -1008,12 +777,4 @@ func (s *Server) tokenErrHelper(w http.ResponseWriter, typ string, description s
 	if err := tokenErr(w, typ, description, statusCode); err != nil {
 		s.logger.Errorf("token error response: %v", err)
 	}
-}
-
-// Check for username prompt override from connector. Defaults to "Username".
-func usernamePrompt(conn connector.PasswordConnector) string {
-	if attr := conn.Prompt(); attr != "" {
-		return attr
-	}
-	return "Username"
 }

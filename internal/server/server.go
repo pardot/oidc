@@ -2,19 +2,15 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/felixge/httpsnoop"
 	"github.com/gorilla/handlers"
@@ -23,19 +19,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/heroku/deci/internal/connector"
-	"github.com/heroku/deci/internal/connector/mock"
 	"github.com/heroku/deci/internal/storage"
 )
-
-// LocalConnector is the local passwordDB connector which is an internal
-// connector maintained by the server.
-const LocalConnector = "local"
-
-// Connector is a connector with resource version metadata.
-type Connector struct {
-	ResourceVersion string
-	Connector       connector.Connector
-}
 
 // Config holds the server's configuration options.
 //
@@ -112,12 +97,12 @@ type Server struct {
 
 	// mutex for the connectors map.
 	mu sync.Mutex
-	// Map of connector IDs to connectors.
-	connectors map[string]Connector
 
 	storage storage.Storage
 
-	mux http.Handler
+	connector connector.Connector
+
+	mux *mux.Router
 
 	templates *templates
 
@@ -184,7 +169,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 
 	s := &Server{
 		issuerURL:              *issuerURL,
-		connectors:             make(map[string]Connector),
 		storage:                newKeyCacher(c.Storage, now),
 		supportedResponseTypes: supported,
 		idTokensValidFor:       value(c.IDTokensValidFor, 24*time.Hour),
@@ -192,23 +176,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 		now:                    now,
 		// templates:              tmpls,
 		logger: c.Logger,
-	}
-
-	// Retrieves connector objects in backend storage. This list includes the static connectors
-	// defined in the ConfigMap and dynamic connectors retrieved from the storage.
-	storageConnectors, err := c.Storage.ListConnectors()
-	if err != nil {
-		return nil, fmt.Errorf("server: failed to list connector objects from storage: %v", err)
-	}
-
-	if len(storageConnectors) == 0 && len(s.connectors) == 0 {
-		return nil, errors.New("server: no connectors specified")
-	}
-
-	for _, conn := range storageConnectors {
-		if _, err := s.OpenConnector(conn); err != nil {
-			return nil, fmt.Errorf("server: Failed to open connector %s: %v", conn.ID, err)
-		}
 	}
 
 	requestCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -255,21 +222,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 	// TODO(ericchiang): rate limit certain paths based on IP.
 	handleWithCORS("/token", s.handleToken)
 	handleWithCORS("/keys", s.handlePublicKeys)
-	handleFunc("/auth", s.handleAuthorization)
-	handleFunc("/auth/{connector}", s.handleConnectorLogin)
-	r.HandleFunc(path.Join(issuerURL.Path, "/callback"), func(w http.ResponseWriter, r *http.Request) {
-		// Strip the X-Remote-* headers to prevent security issues on
-		// misconfigured authproxy connector setups.
-		for key := range r.Header {
-			if strings.HasPrefix(strings.ToLower(key), "x-remote-") {
-				r.Header.Del(key)
-			}
-		}
-		s.handleConnectorCallback(w, r)
-	})
-	// For easier connector-specific web server configuration, e.g. for the
-	// "authproxy" connector.
-	handleFunc("/callback/{connector}", s.handleConnectorCallback)
 	handleFunc("/approval", s.handleApproval)
 	handleFunc("/healthz", s.handleHealth)
 	// handlePrefix("/static", static)
@@ -297,65 +249,6 @@ func (s *Server) absURL(pathItems ...string) string {
 	u := s.issuerURL
 	u.Path = s.absPath(pathItems...)
 	return u.String()
-}
-
-func newPasswordDB(s storage.Storage) interface {
-	connector.Connector
-	connector.PasswordConnector
-} {
-	return passwordDB{s}
-}
-
-type passwordDB struct {
-	s storage.Storage
-}
-
-func (db passwordDB) Login(ctx context.Context, s connector.Scopes, email, password string) (connector.Identity, bool, error) {
-	p, err := db.s.GetPassword(email)
-	if err != nil {
-		if err != storage.ErrNotFound {
-			return connector.Identity{}, false, fmt.Errorf("get password: %v", err)
-		}
-		return connector.Identity{}, false, nil
-	}
-	if err := bcrypt.CompareHashAndPassword(p.Hash, []byte(password)); err != nil {
-		return connector.Identity{}, false, nil
-	}
-	return connector.Identity{
-		UserID:        p.UserID,
-		Username:      p.Username,
-		Email:         p.Email,
-		EmailVerified: true,
-	}, true, nil
-}
-
-func (db passwordDB) Refresh(ctx context.Context, s connector.Scopes, identity connector.Identity) (connector.Identity, error) {
-	// If the user has been deleted, the refresh token will be rejected.
-	p, err := db.s.GetPassword(identity.Email)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			return connector.Identity{}, errors.New("user not found")
-		}
-		return connector.Identity{}, fmt.Errorf("get password: %v", err)
-	}
-
-	// User removed but a new user with the same email exists.
-	if p.UserID != identity.UserID {
-		return connector.Identity{}, errors.New("user not found")
-	}
-
-	// If a user has updated their username, that will be reflected in the
-	// refreshed token.
-	//
-	// No other fields are expected to be refreshable as email is effectively used
-	// as an ID and this implementation doesn't deal with groups.
-	identity.Username = p.Username
-
-	return identity, nil
-}
-
-func (db passwordDB) Prompt() string {
-	return "Email Address"
 }
 
 // newKeyCacher returns a storage which caches keys so long as the next
@@ -406,93 +299,4 @@ func (s *Server) startGarbageCollection(ctx context.Context, frequency time.Dura
 		}
 	}()
 	return
-}
-
-// ConnectorConfig is a configuration that can open a connector.
-type ConnectorConfig interface {
-	Open(id string, logger logrus.FieldLogger) (connector.Connector, error)
-}
-
-// ConnectorsConfig variable provides an easy way to return a config struct
-// depending on the connector type.
-var ConnectorsConfig = map[string]func() ConnectorConfig{
-	"mockCallback": func() ConnectorConfig { return new(mock.CallbackConfig) },
-	"mockPassword": func() ConnectorConfig { return new(mock.PasswordConfig) },
-}
-
-// openConnector will parse the connector config and open the connector.
-func openConnector(logger logrus.FieldLogger, conn storage.Connector) (connector.Connector, error) {
-	var c connector.Connector
-
-	f, ok := ConnectorsConfig[conn.Type]
-	if !ok {
-		return c, fmt.Errorf("unknown connector type %q", conn.Type)
-	}
-
-	connConfig := f()
-	if len(conn.Config) != 0 {
-		data := []byte(string(conn.Config))
-		if err := json.Unmarshal(data, connConfig); err != nil {
-			return c, fmt.Errorf("parse connector config: %v", err)
-		}
-	}
-
-	c, err := connConfig.Open(conn.ID, logger)
-	if err != nil {
-		return c, fmt.Errorf("failed to create connector %s: %v", conn.ID, err)
-	}
-
-	return c, nil
-}
-
-// OpenConnector updates server connector map with specified connector object.
-func (s *Server) OpenConnector(conn storage.Connector) (Connector, error) {
-	var c connector.Connector
-
-	if conn.Type == LocalConnector {
-		c = newPasswordDB(s.storage)
-	} else {
-		var err error
-		c, err = openConnector(s.logger.WithField("connector", conn.Name), conn)
-		if err != nil {
-			return Connector{}, fmt.Errorf("failed to open connector: %v", err)
-		}
-	}
-
-	connector := Connector{
-		ResourceVersion: conn.ResourceVersion,
-		Connector:       c,
-	}
-	s.mu.Lock()
-	s.connectors[conn.ID] = connector
-	s.mu.Unlock()
-
-	return connector, nil
-}
-
-// getConnector retrieves the connector object with the given id from the storage
-// and updates the connector list for server if necessary.
-func (s *Server) getConnector(id string) (Connector, error) {
-	storageConnector, err := s.storage.GetConnector(id)
-	if err != nil {
-		return Connector{}, fmt.Errorf("failed to get connector object from storage: %v", err)
-	}
-
-	var conn Connector
-	var ok bool
-	s.mu.Lock()
-	conn, ok = s.connectors[id]
-	s.mu.Unlock()
-
-	if !ok || storageConnector.ResourceVersion != conn.ResourceVersion {
-		// Connector object does not exist in server connectors map or
-		// has been updated in the storage. Need to get latest.
-		conn, err := s.OpenConnector(storageConnector)
-		if err != nil {
-			return Connector{}, fmt.Errorf("failed to open connector: %v", err)
-		}
-		return conn, nil
-	}
-
-	return conn, nil
 }

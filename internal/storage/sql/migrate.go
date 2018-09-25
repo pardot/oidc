@@ -78,7 +78,7 @@ var migrations = []migration{
 				name text not null,
 				logo_url text not null
 			);
-		
+
 			create table auth_request (
 				id text not null primary key,
 				client_id text not null,
@@ -88,53 +88,50 @@ var migrations = []migration{
 				nonce text not null,
 				state text not null,
 				force_approval_prompt boolean not null,
-		
+
 				logged_in boolean not null,
-		
+
 				claims_user_id text not null,
 				claims_username text not null,
 				claims_email text not null,
 				claims_email_verified boolean not null,
 				claims_groups bytea not null, -- JSON array of strings
-		
-				connector_id text not null,
+
 				connector_data bytea,
-		
+
 				expiry timestamptz not null
 			);
-		
+
 			create table auth_code (
 				id text not null primary key,
 				client_id text not null,
 				scopes bytea not null, -- JSON array of strings
 				nonce text not null,
 				redirect_uri text not null,
-		
+
 				claims_user_id text not null,
 				claims_username text not null,
 				claims_email text not null,
 				claims_email_verified boolean not null,
 				claims_groups bytea not null, -- JSON array of strings
-		
-				connector_id text not null,
+
 				connector_data bytea,
-		
+
 				expiry timestamptz not null
 			);
-		
+
 			create table refresh_token (
 				id text not null primary key,
 				client_id text not null,
 				scopes bytea not null, -- JSON array of strings
 				nonce text not null,
-		
+
 				claims_user_id text not null,
 				claims_username text not null,
 				claims_email text not null,
 				claims_email_verified boolean not null,
 				claims_groups bytea not null, -- JSON array of strings
-		
-				connector_id text not null,
+
 				connector_data bytea
 			);
 
@@ -144,7 +141,7 @@ var migrations = []migration{
 				username text not null,
 				user_id text not null
 			);
-		
+
 			-- keys is a weird table because we only ever expect there to be a single row
 			create table keys (
 				id text not null primary key,
@@ -173,17 +170,6 @@ var migrations = []migration{
 				conn_id text not null,
 				refresh bytea not null,
 				PRIMARY KEY (user_id, conn_id)
-			);
-		`,
-	},
-	{
-		stmt: `
-			create table connector (
-				id text not null primary key,
-				type text not null,
-				name text not null,
-				resource_version text not null,
-				config bytea
 			);
 		`,
 	},

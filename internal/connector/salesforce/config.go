@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	oidc "github.com/coreos/go-oidc"
-	"github.com/heroku/deci/internal/connector"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
@@ -35,7 +34,7 @@ type Config struct {
 
 // Open returns a connector which can be used to login users through an upstream
 // OpenID Connect provider.
-func (c *Config) Open(id string, logger logrus.FieldLogger) (conn connector.Connector, err error) {
+func (c *Config) Open(id string, logger logrus.FieldLogger) (conn *SalesforceConnector, err error) {
 	if c.ClientID == "" || c.ClientSecret == "" {
 		return nil, errors.New("Client ID and/or secret empty, these are required")
 	}
