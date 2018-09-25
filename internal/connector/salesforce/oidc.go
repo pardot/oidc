@@ -89,7 +89,7 @@ func (c *SalesforceConnector) HandleCallback(s connector.Scopes, r *http.Request
 	}
 
 	if s.OfflineAccess {
-		data := connectorData{
+		data := ConnectorData{
 			UserIDURL:    idToken.Subject,
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
@@ -111,7 +111,7 @@ func (c *SalesforceConnector) Refresh(ctx context.Context, s connector.Scopes, i
 		return identity, errors.New("no refresh information found")
 	}
 
-	var data connectorData
+	var data ConnectorData
 	if err := json.Unmarshal(identity.ConnectorData, &data); err != nil {
 		return identity, errors.Wrap(err, "Error unmarshaling connector data")
 	}
@@ -126,7 +126,7 @@ func (c *SalesforceConnector) Refresh(ctx context.Context, s connector.Scopes, i
 		new: c.oauth2Config.TokenSource(ctx, tok),
 		t:   tok,
 		f: func(tok *oauth2.Token) error {
-			data := connectorData{
+			data := ConnectorData{
 				AccessToken:  tok.AccessToken,
 				RefreshToken: tok.RefreshToken,
 				Expiry:       tok.Expiry,
@@ -154,8 +154,8 @@ func (c *SalesforceConnector) Refresh(ctx context.Context, s connector.Scopes, i
 	return identity, nil
 }
 
-// connectorData is persisted for our future use
-type connectorData struct {
+// ConnectorData is is the data we persist for future tracking
+type ConnectorData struct {
 	UserIDURL    string    `json:"user_id_url"`
 	AccessToken  string    `json:"accessToken"`
 	RefreshToken string    `json:"refreshToken"`
