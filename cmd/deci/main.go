@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/sessions"
 	"github.com/heroku/deci"
+	"github.com/heroku/deci/internal/server"
 	"github.com/joeshaw/envdecode"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -61,7 +62,7 @@ func run() error {
 
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
 	// TODO - load config from somewhere
-	a, err := deci.NewApp(logger, &deci.Config{}, session)
+	a, err := deci.NewApp(logger, &deci.Config{}, &server.Config{}, session)
 	if err != nil {
 		return errors.Wrap(err, "Error creating app")
 	}

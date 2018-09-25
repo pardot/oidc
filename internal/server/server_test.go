@@ -20,6 +20,7 @@ import (
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
+	"github.com/gorilla/mux"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -89,16 +90,16 @@ func (r *refresher) Refresh(ctx context.Context, s connector.Scopes, identity co
 }
 
 // authCreator can be called to generate a auth handler for the given server
-type authCreator func(s *Server) http.Handler
+type authCreator func(s *Server, st storage.Storage) http.Handler
 
-var noopCreator = func(s *Server) http.Handler {
+var noopCreator = func(s *Server, st storage.Storage) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		return
 	})
 }
 
-var finalizeCreator = func(s *Server) http.Handler {
-	return s.AuthorizationHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+var finalizeCreator = func(s *Server, st storage.Storage) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// this has to be threaded through all the requests to correctly generate the final step
 		reqID, ok := AuthRequestID(r.Context())
 		if !ok {
@@ -107,7 +108,7 @@ var finalizeCreator = func(s *Server) http.Handler {
 		}
 		// this is the final step. Fetch the request, then constuct a finalize
 		// redirect URL with the identity
-		authReq, err := s.storage.GetAuthRequest(reqID)
+		authReq, err := st.GetAuthRequest(reqID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -118,42 +119,41 @@ var finalizeCreator = func(s *Server) http.Handler {
 			return
 		}
 		http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
-	}))
+	})
 }
 
 func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConfig func(c *Config), updateServer func(s *Server)) (*httptest.Server, *Server) {
-	var server *Server
+	m := mux.NewRouter()
+
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		server.ServeHTTP(w, r)
+		m.ServeHTTP(w, r)
 	}))
 
-	config := Config{
+	config := &Config{
 		Issuer:             s.URL,
 		Storage:            memory.New(logger),
 		Logger:             logger,
 		PrometheusRegistry: prometheus.NewRegistry(),
+		GetAuthHandler:     ac,
 	}
 	if updateConfig != nil {
-		updateConfig(&config)
+		updateConfig(config)
 	}
 	s.URL = config.Issuer
 
-	var err error
-	if server, err = newServer(ctx, config, staticRotationStrategy(testKey)); err != nil {
+	server, err := newServer(ctx, config, staticRotationStrategy(testKey))
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	server.connector = &refresher{}
 
-	issuerURL, err := url.Parse(config.Issuer)
-	if err != nil {
-		t.Fatal("server: can't parse issuer URL")
-	}
-
-	server.mux.Handle(issuerURL.Path+"/auth", ac(server))
-
 	if updateServer != nil {
 		updateServer(server)
+	}
+
+	if err := server.Mount(m); err != nil {
+		t.Fatalf("Error mounting routes on mux [%+v]", err)
 	}
 
 	return s, server
@@ -477,7 +477,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			// TODO - need a better creator
 			httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
 				c.Issuer = c.Issuer + "/non-root-path"
-				c.Now = now
+				c.now = now
 				c.IDTokensValidFor = idTokensValidFor
 			}, tc.modifyServer)
 			defer httpServer.Close()
@@ -1056,7 +1056,7 @@ func TestRefreshTokenFlow(t *testing.T) {
 	defer cancel()
 
 	httpServer, s := newTestServer(ctx, t, finalizeCreator, func(c *Config) {
-		c.Now = now
+		c.now = now
 	}, nil)
 	defer httpServer.Close()
 
