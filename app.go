@@ -1,6 +1,7 @@
 package deci
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"html/template"
@@ -8,7 +9,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"github.com/heroku/deci/internal/connector"
+	"github.com/heroku/deci/internal/server"
 	"github.com/heroku/deci/internal/storage"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,7 +60,7 @@ type App struct {
 	router *mux.Router
 }
 
-func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App, error) {
+func NewApp(logger logrus.FieldLogger, cfg *Config, dcfg *server.Config, sstore sessions.Store) (*App, error) {
 	a := &App{
 		logger:           logger,
 		sstore:           sstore,
@@ -68,6 +72,15 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, sstore sessions.Store) (*App
 	router.HandleFunc("/", a.handleIndex)
 	router.HandleFunc("/credentialrequests", a.handleCreateCredentialRequest).Methods("POST")
 	router.HandleFunc("/credentials", a.handleCreateCredential).Methods("POST")
+
+	dserver, err := server.NewServer(context.Background(), dcfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "Error creating OIDC server")
+	}
+
+	if err := dserver.Mount(router); err != nil {
+		return nil, errors.Wrap(err, "Error mounting OIDC Server")
+	}
 
 	a.router = router
 	return a, nil
@@ -205,4 +218,40 @@ func (a *App) session(r *http.Request) (*sessions.Session, error) {
 		}
 	}
 	return session, err
+}
+
+// genHandleClientAuthRequest returns a HTTP handler that is mounted inside the
+// OIDC server. This is called when a client initalizes the auth flow
+func (a *App) genHandleClientAuthRequest(s *server.Server, st storage.Storage) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// this has to be threaded through all the requests to correctly
+		// generate the final step. Can store it in session, add to urls,
+		// whatever.
+		reqID, ok := server.AuthRequestID(r.Context())
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// TODO - draw the owl. This is where the webauthn & upstream stuff go
+
+		// This identity also needs ConnectorData with refresh token
+		returnedID := connector.Identity{}
+
+		// This is the final step. Fetch the request, then constuct a finalize
+		// redirect URL with the identity. The identity will be returned from the
+		// salesforce connector's HandleCallback method. In the middle we'll have to work that
+		// in to the webauthn flow
+		authReq, err := st.GetAuthRequest(reqID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		redir, err := s.FinalizeLogin(returnedID, authReq)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
+	})
 }

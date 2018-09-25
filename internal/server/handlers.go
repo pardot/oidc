@@ -20,36 +20,6 @@ import (
 	"github.com/heroku/deci/internal/storage"
 )
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	start := s.now()
-	err := func() error {
-		// Instead of trying to introspect health, just try to use the underlying storage.
-		a := storage.AuthRequest{
-			ID:       storage.NewID(),
-			ClientID: storage.NewID(),
-
-			// Set a short expiry so if the delete fails this will be cleaned up quickly by garbage collection.
-			Expiry: s.now().Add(time.Minute),
-		}
-
-		if err := s.storage.CreateAuthRequest(a); err != nil {
-			return fmt.Errorf("create auth request: %v", err)
-		}
-		if err := s.storage.DeleteAuthRequest(a.ID); err != nil {
-			return fmt.Errorf("delete auth request: %v", err)
-		}
-		return nil
-	}()
-
-	t := s.now().Sub(start)
-	if err != nil {
-		s.logger.Errorf("Storage health check failed: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Health check failed.")
-		return
-	}
-	fmt.Fprintf(w, "Health check passed in %s", t)
-}
-
 func (s *Server) handlePublicKeys(w http.ResponseWriter, r *http.Request) {
 	// TODO(ericchiang): Cache this.
 	keys, err := s.storage.GetKeys()
@@ -136,14 +106,14 @@ func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 	}), nil
 }
 
-// AuthorizationHandler wraps a http handler that performs the actual
+// authorizationHandler wraps a http handler that performs the actual
 // authorization, passing it the storage.AuthRequest that it is authorizing for
 // in the context. This can be retrieved with AuthRequestID. The ID should be
 // passed through whatever underlying authorization scheme is used, then used to
 // rehydrate the AuthRequest when calling FinalizeLogin. The path should be what
 // the client is configured to request from (i.e `/auth`, as is currently
 // hardcoded in the discovery information).
-func (s *Server) AuthorizationHandler(wrap http.Handler) http.Handler {
+func (s *Server) authorizationHandler(wrap http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authReq, err := s.parseAuthorizationRequest(r)
 		if err != nil {
