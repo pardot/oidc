@@ -40,10 +40,6 @@ type Config struct {
 	// domain.
 	AllowedOrigins []string
 
-	// If enabled, the server won't prompt the user to approve authorization requests.
-	// Logging in implies approval.
-	SkipApprovalScreen bool
-
 	RotateKeysAfter  time.Duration // Defaults to 6 hours.
 	IDTokensValidFor time.Duration // Defaults to 24 hours
 
@@ -52,36 +48,9 @@ type Config struct {
 	// If specified, the server will use this function for determining time.
 	Now func() time.Time
 
-	Web WebConfig
-
 	Logger logrus.FieldLogger
 
 	PrometheusRegistry *prometheus.Registry
-}
-
-// WebConfig holds the server's frontend templates and asset configuration.
-//
-// These are currently very custom to CoreOS and it's not recommended that
-// outside users attempt to customize these.
-type WebConfig struct {
-	// A filepath to web static.
-	//
-	// It is expected to contain the following directories:
-	//
-	//   * static - Static static served at "( issuer URL )/static".
-	//   * templates - HTML templates controlled by dex.
-	//   * themes/(theme) - Static static served at "( issuer URL )/theme".
-	//
-	Dir string
-
-	// Defaults to "( issuer URL )/theme/logo.png"
-	LogoURL string
-
-	// Defaults to "dex"
-	Issuer string
-
-	// Defaults to "coreos"
-	Theme string
 }
 
 func value(val, defaultValue time.Duration) time.Duration {
@@ -103,11 +72,6 @@ type Server struct {
 	connector connector.Connector
 
 	mux *mux.Router
-
-	templates *templates
-
-	// If enabled, don't prompt user for approval after logging in through connector.
-	skipApproval bool
 
 	supportedResponseTypes map[string]bool
 
@@ -149,19 +113,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 		supported[respType] = true
 	}
 
-	// web := webConfig{
-	// 	dir:       c.Web.Dir,
-	// 	logoURL:   c.Web.LogoURL,
-	// 	issuerURL: c.Issuer,
-	// 	issuer:    c.Web.Issuer,
-	// 	theme:     c.Web.Theme,
-	// }
-
-	// static, theme, tmpls, err := loadWebConfig(web)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("server: failed to load web static: %v", err)
-	// }
-
 	now := c.Now
 	if now == nil {
 		now = time.Now
@@ -172,7 +123,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 		storage:                newKeyCacher(c.Storage, now),
 		supportedResponseTypes: supported,
 		idTokensValidFor:       value(c.IDTokensValidFor, 24*time.Hour),
-		skipApproval:           c.SkipApprovalScreen,
 		now:                    now,
 		// templates:              tmpls,
 		logger: c.Logger,
@@ -224,8 +174,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 	handleWithCORS("/keys", s.handlePublicKeys)
 	handleFunc("/approval", s.handleApproval)
 	handleFunc("/healthz", s.handleHealth)
-	// handlePrefix("/static", static)
-	// handlePrefix("/theme", theme)
 	s.mux = r
 
 	s.startKeyRotation(ctx, rotationStrategy, now)
