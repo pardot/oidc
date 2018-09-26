@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 
 	"net/http"
 
@@ -50,7 +51,7 @@ func init() {
 	cmd.Flags().StringVar(&scfg.Issuer, "issuer", "http://localhost:5556", "Issuer URL for OIDC provider")
 	cmd.Flags().StringVar(&sessionAuthenticationKey, "session-auth-key", mustGenRandB64(64), "Session authentication key, 64-byte, base64-encoded")
 	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
-	cmd.Flags().StringVar(&dbURL, "database", "postgres:///deci", "URL to postgres database for persistence")
+	cmd.Flags().StringVar(&dbURL, "database", defaultDBUrl(), "URL to postgres database for persistence")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -111,4 +112,12 @@ func mustGenRandB64(len int) string {
 		log.Fatalf("Error fetching %d random bytes [%+v]", len, err)
 	}
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+func defaultDBUrl() string {
+	// socket stuff seems weird on mac, but network is on by default in brew
+	if runtime.GOOS == "darwin" {
+		return "postgres://127.0.0.1/deci?sslmode=disable"
+	}
+	return "postgres:///deci"
 }
