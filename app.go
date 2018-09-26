@@ -50,11 +50,12 @@ type App struct {
 	router *mux.Router
 }
 
-func NewApp(logger logrus.FieldLogger, server *server.Server, sstore sessions.Store) (*App, error) {
+func NewApp(logger logrus.FieldLogger, connector connector.CallbackConnector, server *server.Server, sstore sessions.Store) (*App, error) {
 	a := &App{
-		logger: logger,
-		server: server,
-		sstore: sstore,
+		logger:    logger,
+		connector: connector,
+		server:    server,
+		sstore:    sstore,
 	}
 
 	a.router = mux.NewRouter()
