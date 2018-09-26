@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"runtime"
@@ -21,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	yaml "gopkg.in/yaml.v2"
 )
 
 const (
@@ -45,6 +47,7 @@ var ( // flags
 	sessionAuthenticationKey string
 	sessionEncryptionKey     string
 	dbURL                    string
+	staticClientPath         string
 )
 
 func init() {
@@ -53,6 +56,7 @@ func init() {
 	cmd.Flags().StringVar(&sessionAuthenticationKey, "session-auth-key", mustGenRandB64(64), "Session authentication key, 64-byte, base64-encoded")
 	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
 	cmd.Flags().StringVar(&dbURL, "database", defaultDBUrl(), "URL to postgres database for persistence")
+	cmd.Flags().StringVar(&staticClientPath, "static-clients", "config/static-clients.yaml", "File containing static client mappings")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -83,16 +87,19 @@ func run(cmd *cobra.Command, args []string) error {
 		return errors.Wrap(err, "failed to configure storage")
 	}
 
-	scfg.Storage = storage.WithStaticClients(store, []storage.Client{
-		{
-			Name:   "Example App",
-			ID:     "example-app",
-			Secret: "ZXhhbXBsZS1hcHAtc2VjcmV0",
-			RedirectURIs: []string{
-				"http://127.0.0.1:5555/callback",
-			},
-		},
-	})
+	if staticClientPath != "" {
+		cb, err := ioutil.ReadFile(staticClientPath)
+		if err != nil {
+			return errors.Wrapf(err, "Error reading static client config from %s", staticClientPath)
+		}
+		clients := []storage.Client{}
+		if err := yaml.Unmarshal(cb, &clients); err != nil {
+			return errors.Wrapf(err, "Error unmarshaling yaml from %s", staticClientPath)
+		}
+		store = storage.WithStaticClients(store, clients)
+	}
+
+	scfg.Storage = store
 
 	server, err := server.NewServer(context.Background(), &scfg)
 	if err != nil {
