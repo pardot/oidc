@@ -216,9 +216,9 @@ func (d *AuthenticatorData) HasExtensions() bool {
 
 type COSEPublicKey struct {
 	_struct   bool                    `codec:",int"`
-	Algorithm COSEAlgorithmIdentifier `codec:"3"`
-	KeyType   int8                    `codec:"1"`
-	Curve     int8                    `gorm:"not null" codec:"-1"`
-	X         []byte                  `gorm:"not null" codec:"-2"`
-	Y         []byte                  `gorm:"not null" codec:"-3"`
+	Algorithm COSEAlgorithmIdentifier `codec:"3" json:"algorithm"`
+	KeyType   int8                    `codec:"1" json:"key_type"`
+	Curve     int8                    `gorm:"not null" codec:"-1" json:"curve"`
+	X         []byte                  `gorm:"not null" codec:"-2" json:"x"`
+	Y         []byte                  `gorm:"not null" codec:"-3" json:"y"`
 }

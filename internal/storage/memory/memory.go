@@ -6,6 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/heroku/deci/internal/connector"
+	"github.com/heroku/deci/internal/webauthn"
+	"github.com/pkg/errors"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/heroku/deci/internal/storage"
@@ -14,14 +18,15 @@ import (
 // New returns an in memory storage.
 func New(logger logrus.FieldLogger) storage.Storage {
 	return &memStorage{
-		clients:         make(map[string]storage.Client),
-		authCodes:       make(map[string]storage.AuthCode),
-		refreshTokens:   make(map[string]storage.RefreshToken),
-		authReqs:        make(map[string]storage.AuthRequest),
-		passwords:       make(map[string]storage.Password),
-		offlineSessions: make(map[offlineSessionID]storage.OfflineSessions),
-		connectors:      make(map[string]storage.Connector),
-		logger:          logger,
+		clients:             make(map[string]storage.Client),
+		authCodes:           make(map[string]storage.AuthCode),
+		refreshTokens:       make(map[string]storage.RefreshToken),
+		authReqs:            make(map[string]storage.AuthRequest),
+		passwords:           make(map[string]storage.Password),
+		offlineSessions:     make(map[offlineSessionID]storage.OfflineSessions),
+		connectors:          make(map[string]storage.Connector),
+		webauthAssociations: make(map[string]webauthAssociation),
+		logger:              logger,
 	}
 }
 
@@ -37,16 +42,23 @@ func (c *Config) Open(logger logrus.FieldLogger) (storage.Storage, error) {
 	return New(logger), nil
 }
 
+type webauthAssociation struct {
+	counter int
+	key     webauthn.COSEPublicKey
+	ident   connector.Identity
+}
+
 type memStorage struct {
 	mu sync.Mutex
 
-	clients         map[string]storage.Client
-	authCodes       map[string]storage.AuthCode
-	refreshTokens   map[string]storage.RefreshToken
-	authReqs        map[string]storage.AuthRequest
-	passwords       map[string]storage.Password
-	offlineSessions map[offlineSessionID]storage.OfflineSessions
-	connectors      map[string]storage.Connector
+	clients             map[string]storage.Client
+	authCodes           map[string]storage.AuthCode
+	refreshTokens       map[string]storage.RefreshToken
+	authReqs            map[string]storage.AuthRequest
+	passwords           map[string]storage.Password
+	offlineSessions     map[offlineSessionID]storage.OfflineSessions
+	connectors          map[string]storage.Connector
+	webauthAssociations map[string]webauthAssociation
 
 	keys storage.Keys
 
@@ -460,4 +472,46 @@ func (s *memStorage) UpdateConnector(id string, updater func(c storage.Connector
 		}
 	})
 	return
+}
+
+func (s *memStorage) UpsertWebauthAssociation(credentialID []byte, counter int, key webauthn.COSEPublicKey, identity connector.Identity) error {
+	var err error
+	s.tx(func() {
+		curr, ok := s.webauthAssociations[string(credentialID)]
+		if ok && counter <= curr.counter {
+			err = errors.New("Counter did not increment")
+		}
+		s.webauthAssociations[string(credentialID)] = webauthAssociation{
+			counter: counter,
+			key:     key,
+			ident:   identity,
+		}
+	})
+	return err
+}
+
+func (s *memStorage) GetWebauthAssociation(credentialID []byte) (webauthn.COSEPublicKey, connector.Identity, error) {
+	var err error
+	var ret webauthAssociation
+	s.tx(func() {
+		curr, ok := s.webauthAssociations[string(credentialID)]
+		if !ok {
+			err = storage.ErrNotFound
+			return
+		}
+		ret = curr
+	})
+	return ret.key, ret.ident, err
+}
+
+func (s *memStorage) DeleteWebauthAssociation(credentialID []byte) error {
+	var err error
+	s.tx(func() {
+		if _, ok := s.webauthAssociations[string(credentialID)]; !ok {
+			err = storage.ErrNotFound
+			return
+		}
+		delete(s.webauthAssociations, string(credentialID))
+	})
+	return err
 }
