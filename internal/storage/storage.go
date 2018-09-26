@@ -63,7 +63,7 @@ type Storage interface {
 	GetKeys() (Keys, error)
 	GetRefresh(id string) (RefreshToken, error)
 	GetPassword(email string) (Password, error)
-	GetOfflineSessions(userID string, connID string) (OfflineSessions, error)
+	GetOfflineSessions(userID string) (OfflineSessions, error)
 	// GetConnector(id string) (Connector, error)
 
 	ListClients() ([]Client, error)
@@ -77,7 +77,7 @@ type Storage interface {
 	DeleteClient(id string) error
 	DeleteRefresh(id string) error
 	DeletePassword(email string) error
-	DeleteOfflineSessions(userID string, connID string) error
+	DeleteOfflineSessions(userID string) error
 	// DeleteConnector(id string) error
 
 	// Update methods take a function for updating an object then performs that update within
@@ -99,7 +99,7 @@ type Storage interface {
 	UpdateAuthRequest(id string, updater func(a AuthRequest) (AuthRequest, error)) error
 	UpdateRefreshToken(id string, updater func(r RefreshToken) (RefreshToken, error)) error
 	UpdatePassword(email string, updater func(p Password) (Password, error)) error
-	UpdateOfflineSessions(userID string, connID string, updater func(s OfflineSessions) (OfflineSessions, error)) error
+	UpdateOfflineSessions(userID string, updater func(s OfflineSessions) (OfflineSessions, error)) error
 	// UpdateConnector(id string, updater func(c Connector) (Connector, error)) error
 
 	// GarbageCollect deletes all expired AuthCodes and AuthRequests.
@@ -211,7 +211,6 @@ type AuthCode struct {
 	Scopes []string
 
 	// Authentication data provided by an upstream source.
-	ConnectorID   string
 	ConnectorData []byte
 	Claims        Claims
 
@@ -235,7 +234,6 @@ type RefreshToken struct {
 	ClientID string
 
 	// Authentication data provided by an upstream source.
-	ConnectorID   string
 	ConnectorData []byte
 	Claims        Claims
 
@@ -264,9 +262,6 @@ type RefreshTokenRef struct {
 type OfflineSessions struct {
 	// UserID of an end user who has logged in to the server.
 	UserID string
-
-	// The ID of the connector used to login the user.
-	ConnID string
 
 	// Refresh is a hash table of refresh token reference objects
 	// indexed by the ClientID of the refresh token.

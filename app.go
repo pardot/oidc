@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	sessionName         = "deci"
-	sessionChallengeKey = "challenge"
+	sessionName             = "deci"
+	sessionChallengeKey     = "challenge"
+	sessionAuthRequestIDKey = "auth-req-id"
 )
 
 var (
@@ -58,7 +59,6 @@ func NewApp(logger logrus.FieldLogger, server *server.Server, sstore sessions.St
 
 	a.router = mux.NewRouter()
 	a.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
-	a.router.HandleFunc("/", a.handleIndex)
 
 	// Not trying to be RESTful here, as I think an RPC interface will be better at some point anyway
 	// See: <https://github.com/heroku/deci/issues/22>
@@ -284,23 +284,29 @@ func (a *App) handleClientAuthRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	sess, _ := a.session(r)
-	sess.Values["auth-request-id"] = reqID
-	if err := sess.Save(r, w); err != nil {
-		a.logger.WithError(err).Warn("Error saving session")
+
+	session, err := a.session(r)
+	if err != nil {
+		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	// Render the "index" page here. This should prompt the user to verify
-	// themselves using webauthn, or ask if they want to enroll
+	session.Values[sessionAuthRequestIDKey] = reqID
+	if err := session.Save(r, w); err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	a.renderWithDefaultLayout(w, http.StatusOK, "./templates/index.html.tmpl", nil)
 }
 
 // handleEnrollRequest kicks off a flow to the upstream server, for the purposes
 // of enrolling the user. The "enroll" link should hit this
 func (a *App) handleEnrollRequest(w http.ResponseWriter, r *http.Request) {
 	sess, _ := a.session(r)
-	reqID, ok := sess.Values["auth-request-id"]
+	reqID, ok := sess.Values[sessionAuthRequestIDKey]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -319,7 +325,7 @@ func (a *App) handleEnrollRequest(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleEnrollCallback(w http.ResponseWriter, r *http.Request) {
 	// Fetch the auth request ID from the session
 	sess, _ := a.session(r)
-	reqID, ok := sess.Values["auth-request-id"]
+	reqID, ok := sess.Values[sessionAuthRequestIDKey]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -357,7 +363,7 @@ func (a *App) handleEnrollCallback(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleKeyLogin(w http.ResponseWriter, r *http.Request) {
 	// Fetch the auth request ID from the session
 	sess, _ := a.session(r)
-	reqID, ok := sess.Values["auth-request-id"]
+	reqID, ok := sess.Values[sessionAuthRequestIDKey]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		return

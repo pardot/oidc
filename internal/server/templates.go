@@ -25,7 +25,7 @@ var oobTmpl = template.Must(template.New("oob").Parse(`<html>
 
 func writeError(w http.ResponseWriter, errCode int, errMsg string) error {
 	w.WriteHeader(errCode)
-	return oobTmpl.ExecuteTemplate(w, "oob", struct {
+	return errTmpl.ExecuteTemplate(w, "oob", struct {
 		ErrType string
 		ErrMsg  string
 	}{
