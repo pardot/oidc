@@ -8,9 +8,9 @@ import (
 
 func TestAuthData_UnmarshalBinary(t *testing.T) {
 	eccKey := &COSEPublicKey{
-		Type: COSEAlgorithmES256,
-		X:    []byte{1, 2, 3, 4},
-		Y:    []byte{9, 8, 7, 6},
+		Algorithm: COSEAlgorithmES256,
+		X:         []byte{1, 2, 3, 4},
+		Y:         []byte{9, 8, 7, 6},
 	}
 
 	cases := []struct {
