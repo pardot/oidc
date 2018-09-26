@@ -1,6 +1,10 @@
 package server
 
-import "context"
+import (
+	"context"
+
+	"github.com/heroku/deci/internal/connector"
+)
 
 type contextKey string
 
@@ -10,10 +14,17 @@ func (c contextKey) String() string {
 
 var (
 	contextKeyAuthRequestID = contextKey("auth-request-id")
+	contextKeyIdentity      = contextKey("identity")
 )
 
 // AuthRequestID gets the authorization request ID from the context.
 func AuthRequestID(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(contextKeyAuthRequestID).(string)
+	return id, ok
+}
+
+// Identity returns the authorized identity.
+func Identity(ctx context.Context) (connector.Identity, bool) {
+	id, ok := ctx.Value(contextKeyIdentity).(connector.Identity)
 	return id, ok
 }
