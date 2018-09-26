@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heroku/deci/internal/connector"
+	"github.com/heroku/deci/internal/webauthn"
+
 	jose "gopkg.in/square/go-jose.v2"
 )
 
@@ -101,6 +104,17 @@ type Storage interface {
 	UpdatePassword(email string, updater func(p Password) (Password, error)) error
 	UpdateOfflineSessions(userID string, updater func(s OfflineSessions) (OfflineSessions, error)) error
 	// UpdateConnector(id string, updater func(c Connector) (Connector, error)) error
+
+	// UpsertWebauthAssociation links the webauthn credential identified by
+	// `credentialID` with the public key `key` and the upstream identity
+	// `identity`. This will create a new record if it doesn't exist, or update
+	// the record for `credentialID` if it does
+	UpsertWebauthAssociation(credentialID []byte, key webauthn.COSEPublicKey, identity connector.Identity) error
+	// GetWebauthAssociation returns the public key and identity associated with a given credentialID
+	GetWebauthAssociation(credentialID []byte) (key webauthn.COSEPublicKey, identity connector.Identity, err error)
+	// DeleteWebauthAssociation removes the upstream identity association and
+	// key record for the given credentialID
+	DeleteWebauthAssociation(credentialID []byte) error
 
 	// GarbageCollect deletes all expired AuthCodes and AuthRequests.
 	GarbageCollect(now time.Time) (GCResult, error)
