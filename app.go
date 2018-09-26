@@ -67,6 +67,9 @@ func NewApp(logger logrus.FieldLogger, server *server.Server, sstore sessions.St
 	a.router.HandleFunc("/CreateAuthenticateOptions", a.handleCreateAuthenticateOptions).Methods("POST")
 	a.router.HandleFunc("/AuthenticatePublicKey", a.handleAuthenticatePublicKey).Methods("POST")
 
+	// OIDC handler. This is called when clients initialize the flow
+	a.router.Handle("/auth", server.AuthorizationHandler(http.HandlerFunc(a.handleClientAuthRequest)))
+
 	if err := server.Mount(a.router); err != nil {
 		return nil, errors.Wrap(err, "Error mounting OIDC Server")
 	}
@@ -271,28 +274,26 @@ func (a *App) session(r *http.Request) (*sessions.Session, error) {
 	return session, err
 }
 
-// genHandleClientAuthRequest returns a HTTP handler that is mounted inside the
+// handleClientAuthRequest returns a HTTP handler that is mounted inside the
 // OIDC server. This is called when a client initalizes the auth flow
-func (a *App) genHandleClientAuthRequest(s *server.Server, st storage.Storage) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// this has to be threaded through all the requests to correctly
-		// generate the final step. Get it, and stuff it in the session
-		reqID, ok := server.AuthRequestID(r.Context())
-		if !ok {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		sess, _ := a.session(r)
-		sess.Values["auth-request-id"] = reqID
-		if err := sess.Save(r, w); err != nil {
-			a.logger.WithError(err).Warn("Error saving session")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+func (a *App) handleClientAuthRequest(w http.ResponseWriter, r *http.Request) {
+	// this has to be threaded through all the requests to correctly
+	// generate the final step. Get it, and stuff it in the session
+	reqID, ok := server.AuthRequestID(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	sess, _ := a.session(r)
+	sess.Values["auth-request-id"] = reqID
+	if err := sess.Save(r, w); err != nil {
+		a.logger.WithError(err).Warn("Error saving session")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
-		// Render the "index" page here. This should prompt the user to verify
-		// themselves using webauthn, or ask if they want to enroll
-	})
+	// Render the "index" page here. This should prompt the user to verify
+	// themselves using webauthn, or ask if they want to enroll
 }
 
 // handleEnrollRequest kicks off a flow to the upstream server, for the purposes

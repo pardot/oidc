@@ -28,12 +28,10 @@ type Config struct {
 	// Issuer is the URL the issuer is configured under
 	Issuer string
 
-	// GetAuthHandler is called to return a handler for the given server. It is
-	// called when a new client requests access, and is responsible for
-	// managaing that flow. It is passed the Server instance so it can fetch a
-	// URL from FinalizeLogin to redirect the user to when done. The Auth
-	// Request ID can be found on the request context via `AuthRequestID`.
-	GetAuthHandler func(s *Server, st storage.Storage) http.Handler
+	// AuthPrefix is where the AuthorizationHandler is mounted relative to the
+	// Issuer. This is returned in the discovery information. It should have a
+	// leading /. Defaults to "/auth"
+	AuthPrefix string
 
 	// The backing persistence layer.
 	Storage storage.Storage
@@ -73,9 +71,9 @@ func value(val, defaultValue time.Duration) time.Duration {
 // Server is the top level object.
 type Server struct {
 	issuerURL              url.URL
+	authPrefix             string
 	storage                storage.Storage
 	connector              connector.Connector
-	authHandler            func(s *Server, st storage.Storage) http.Handler
 	supportedResponseTypes map[string]bool
 	idTokensValidFor       time.Duration
 	allowedOrigins         []string
@@ -98,6 +96,11 @@ func newServer(ctx context.Context, c *Config, rotationStrategy rotationStrategy
 	issuerURL, err := url.Parse(c.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
+	}
+
+	authPrefix := c.AuthPrefix
+	if authPrefix == "" {
+		authPrefix = "/auth"
 	}
 
 	if c.Storage == nil {
@@ -124,13 +127,13 @@ func newServer(ctx context.Context, c *Config, rotationStrategy rotationStrategy
 
 	s := &Server{
 		issuerURL:              *issuerURL,
+		authPrefix:             authPrefix,
 		storage:                newKeyCacher(c.Storage, now),
 		supportedResponseTypes: supported,
 		idTokensValidFor:       value(c.IDTokensValidFor, 24*time.Hour),
 		now:                    now,
 		logger:                 c.Logger,
 		connector:              c.Connector,
-		authHandler:            c.GetAuthHandler,
 		prometheusRegistry:     c.PrometheusRegistry,
 	}
 
@@ -181,7 +184,6 @@ func (s *Server) Mount(r *mux.Router) error {
 
 	// TODO(ericchiang): rate limit certain paths based on IP.
 	handleWithCORS("/token", s.handleToken)
-	handleFunc("/auth", s.authorizationHandler(s.authHandler(s, s.storage)).ServeHTTP)
 	handleWithCORS("/token", s.handleToken)
 	handleWithCORS("/keys", s.handlePublicKeys)
 	handleFunc("/approval", s.handleApproval)

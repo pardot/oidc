@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
@@ -134,7 +135,6 @@ func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConf
 		Storage:            memory.New(logger),
 		Logger:             logger,
 		PrometheusRegistry: prometheus.NewRegistry(),
-		GetAuthHandler:     ac,
 	}
 	if updateConfig != nil {
 		updateConfig(config)
@@ -147,6 +147,9 @@ func newTestServer(ctx context.Context, t *testing.T, ac authCreator, updateConf
 	}
 
 	server.connector = &refresher{}
+
+	ah := ac(server, server.storage)
+	m.Handle(path.Join(server.issuerURL.Path, "/auth"), server.AuthorizationHandler(ah))
 
 	if updateServer != nil {
 		updateServer(server)
