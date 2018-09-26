@@ -11,6 +11,13 @@ import (
 
 type UserVerificationRequirement string
 
+type ClientDataType string
+
+const (
+	ClientDataTypeGet    ClientDataType = "webauthn.get"
+	ClientDataTypeCreate ClientDataType = "webauthn.create"
+)
+
 const (
 	UserVerificationPreferred UserVerificationRequirement = "preferred"
 	UserVerificationRequired  UserVerificationRequirement = "required"
@@ -101,7 +108,10 @@ type PublicKeyCredential struct {
 
 // See: <https://w3c.github.io/webauthn/#authenticatorresponse>
 type AuthenticatorResponse struct {
-	// ClientDataJSON is defined for all response types
+	// ClientDataJSON is defined for all response types. It can be decoded into a
+	// CollectedClientData object. The original is always preserved here because
+	// the signature must be verified on the exact data returned, not on a
+	// re-serialized copy.
 	ClientDataJSON []byte `json:"clientDataJSON"`
 
 	// AttestationObject is defined when a new public key is being enrolled
@@ -114,6 +124,14 @@ type AuthenticatorResponse struct {
 	AuthenticatorData *AuthenticatorData `json:"authenticatorData,omitempty"`
 	Signature         []byte             `json:"signature,omitempty"`
 	UserHandle        []byte             `json:"userHandle,omitempty"`
+}
+
+// See: <https://w3c.github.io/webauthn/#client-data>
+type CollectedClientData struct {
+	Challenge Base64URLEncodedBytes `json:"challenge"`
+	Origin    string                `json:"origin"`
+	Type      ClientDataType        `json:"type"`
+	// TODO: TokenBinding if we need it
 }
 
 type AttestationObject struct {
@@ -221,4 +239,20 @@ type COSEPublicKey struct {
 	Curve     int8                    `gorm:"not null" codec:"-1" json:"curve"`
 	X         []byte                  `gorm:"not null" codec:"-2" json:"x"`
 	Y         []byte                  `gorm:"not null" codec:"-3" json:"y"`
+}
+
+type Base64URLEncodedBytes []byte
+
+func (b *Base64URLEncodedBytes) UnmarshalJSON(data []byte) error {
+	data = bytes.Trim(data, `"`)
+
+	enc := base64.RawURLEncoding
+	dst := make([]byte, enc.DecodedLen(len(data)))
+	n, err := enc.Decode(dst, data)
+	if err != nil {
+		return err
+	}
+	*b = Base64URLEncodedBytes(dst[:n])
+
+	return nil
 }

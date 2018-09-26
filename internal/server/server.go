@@ -225,6 +225,10 @@ func (s *Server) absURL(pathItems ...string) string {
 	return u.String()
 }
 
+func (s *Server) CallbackURL() string {
+	return s.absURL("/callback")
+}
+
 // newKeyCacher returns a storage which caches keys so long as the next
 func newKeyCacher(s storage.Storage, now func() time.Time) storage.Storage {
 	if now == nil {
