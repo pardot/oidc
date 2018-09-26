@@ -313,6 +313,8 @@ func (a *App) handleEnrollRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// state is always the request ID, the callback handler needs it to look up
+	// the auth request
 	lurl, err := a.connector.LoginURL(connector.Scopes{}, "https://us/callback", reqID.(string))
 	if err != nil {
 		a.logger.WithError(err).Error("Error creating upstream login URL")

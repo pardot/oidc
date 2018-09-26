@@ -108,11 +108,8 @@ func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 
 // AuthorizationHandler wraps a http handler that performs the actual
 // authorization, passing it the storage.AuthRequest that it is authorizing for
-// in the context. This can be retrieved with AuthRequestID. The ID should be
-// passed through whatever underlying authorization scheme is used, then used to
-// rehydrate the AuthRequest when calling FinalizeLogin. The path should be what
-// the client is configured to request from (i.e `/auth`, as is currently
-// hardcoded in the discovery information).
+// in the context. This can be retrieved with AuthRequestID. The path should be
+// what the client is configured to request from (default `/auth`).
 func (s *Server) AuthorizationHandler(wrap http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authReq, err := s.parseAuthorizationRequest(r)
@@ -145,6 +142,65 @@ func (s *Server) AuthorizationHandler(wrap http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), contextKeyAuthRequestID, authReq.ID)
+
+		wrap.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// CallbackHandler wraps a handler to manage the oauth2 callback. If the
+// callback is invalid it will return an error, otherwise it will build the
+// correct identiy and store it in the context. The wrapped handler can retrieve
+// it with `Identity`. This wrapper handler is responsible for redirecting the
+// user to the FinalizeLogin path. It should be mounted at the callback path
+// provided to the upstream provider (e.g /callback)
+func (s *Server) CallbackHandler(wrap http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		var authID string
+		switch r.Method {
+		case "GET": // OAuth2 callback
+			if authID = r.URL.Query().Get("state"); authID == "" {
+				s.renderError(w, http.StatusBadRequest, "User session error.")
+				return
+			}
+		default:
+			s.renderError(w, http.StatusBadRequest, "Method not supported")
+			return
+		}
+
+		authReq, err := s.storage.GetAuthRequest(authID)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				s.logger.Errorf("Invalid 'state' parameter provided: %v", err)
+				s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
+				return
+			}
+			s.logger.Errorf("Failed to get auth request: %v", err)
+			s.renderError(w, http.StatusInternalServerError, "Database error.")
+			return
+		}
+
+		var identity connector.Identity
+		switch conn := s.connector.(type) {
+		case connector.CallbackConnector:
+			if r.Method != "GET" {
+				s.logger.Errorf("SAML request mapped to OAuth2 connector")
+				s.renderError(w, http.StatusBadRequest, "Invalid request")
+				return
+			}
+			identity, err = conn.HandleCallback(parseScopes(authReq.Scopes), r)
+		default:
+			s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
+			return
+		}
+
+		if err != nil {
+			s.logger.Errorf("Failed to authenticate: %v", err)
+			s.renderError(w, http.StatusInternalServerError, "Failed to return user's identity.")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), contextKeyIdentity, identity)
 
 		wrap.ServeHTTP(w, r.WithContext(ctx))
 	})
