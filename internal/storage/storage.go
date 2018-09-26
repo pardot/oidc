@@ -160,6 +160,20 @@ type Claims struct {
 	Groups []string
 }
 
+// Identity builds a connector identity with the passed in connector
+// data.
+func (c *Claims) Identity(connectorData []byte) connector.Identity {
+	return connector.Identity{
+		UserID:        c.UserID,
+		Username:      c.Username,
+		Email:         c.Email,
+		EmailVerified: c.EmailVerified,
+		Groups:        c.Groups,
+
+		ConnectorData: connectorData,
+	}
+}
+
 // AuthRequest represents a OAuth2 client authorization request. It holds the state
 // of a single auth flow up to the point that the user authorizes the client.
 type AuthRequest struct {

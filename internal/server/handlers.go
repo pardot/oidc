@@ -603,14 +603,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		scopes = requestedScopes
 	}
 
-	ident := connector.Identity{
-		UserID:        refresh.Claims.UserID,
-		Username:      refresh.Claims.Username,
-		Email:         refresh.Claims.Email,
-		EmailVerified: refresh.Claims.EmailVerified,
-		Groups:        refresh.Claims.Groups,
-		ConnectorData: refresh.ConnectorData,
-	}
+	ident := refresh.Claims.Identity(refresh.ConnectorData)
 
 	// Can the connector refresh the identity? If so, attempt to refresh the data
 	// in the connector.
