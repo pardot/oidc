@@ -76,7 +76,7 @@ type discovery struct {
 func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 	d := discovery{
 		Issuer:      s.issuerURL.String(),
-		Auth:        s.absURL("/auth"),
+		Auth:        s.absURL(s.authPrefix),
 		Token:       s.absURL("/token"),
 		Keys:        s.absURL("/keys"),
 		Subjects:    []string{"public"},
@@ -106,14 +106,14 @@ func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 	}), nil
 }
 
-// authorizationHandler wraps a http handler that performs the actual
+// AuthorizationHandler wraps a http handler that performs the actual
 // authorization, passing it the storage.AuthRequest that it is authorizing for
 // in the context. This can be retrieved with AuthRequestID. The ID should be
 // passed through whatever underlying authorization scheme is used, then used to
 // rehydrate the AuthRequest when calling FinalizeLogin. The path should be what
 // the client is configured to request from (i.e `/auth`, as is currently
 // hardcoded in the discovery information).
-func (s *Server) authorizationHandler(wrap http.Handler) http.Handler {
+func (s *Server) AuthorizationHandler(wrap http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authReq, err := s.parseAuthorizationRequest(r)
 		if err != nil {

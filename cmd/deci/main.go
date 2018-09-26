@@ -74,6 +74,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	scfg.Logger = logger
 	scfg.PrometheusRegistry = prometheus.NewRegistry() // TODO: Actually register stuff to this
+	scfg.AuthPrefix = "/auth"                          // where we want incoming requests from clients to land
 
 	store, err := sql.PostgresForURL(logger, dbURL)
 	if err != nil {
@@ -99,6 +100,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Addr:    addr,
 		Handler: a,
 	}
+	log.Printf("Running on %s", addr)
 	return srv.ListenAndServe()
 }
 
