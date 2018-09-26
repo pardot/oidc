@@ -9,6 +9,8 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/heroku/deci/internal/connector/salesforce"
+
 	"net/http"
 
 	"crypto/rand"
@@ -44,6 +46,7 @@ var cmd = cobra.Command{
 var ( // flags
 	addr                     string
 	scfg                     server.Config
+	conncfg                  salesforce.Config
 	sessionAuthenticationKey string
 	sessionEncryptionKey     string
 	dbURL                    string
@@ -53,6 +56,14 @@ var ( // flags
 func init() {
 	cmd.Flags().StringVar(&addr, "addr", "localhost:5556", "Address to listen on")
 	cmd.Flags().StringVar(&scfg.Issuer, "issuer", "http://localhost:5556", "Issuer URL for OIDC provider")
+	cmd.Flags().StringVar(&conncfg.ClientID, "upstream-client-id", "", "Client ID for upstream connector")
+	cmd.MarkFlagRequired("upstream-client-id")
+	cmd.Flags().StringVar(&conncfg.ClientSecret, "upstream-client-secret", "", "Client Secret for upstream connector")
+	cmd.MarkFlagRequired("upstream-client-secret")
+	cmd.Flags().StringVar(&conncfg.Issuer, "upstream-issuer", "", "Issuer for upstream provider")
+	cmd.MarkFlagRequired("upstream-issuer")
+	cmd.Flags().StringVar(&conncfg.RedirectURI, "upstream-redirect", "", "Redirect URI for upstream provider")
+	cmd.MarkFlagRequired("upstream-redirect")
 	cmd.Flags().StringVar(&sessionAuthenticationKey, "session-auth-key", mustGenRandB64(64), "Session authentication key, 64-byte, base64-encoded")
 	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
 	cmd.Flags().StringVar(&dbURL, "database", defaultDBUrl(), "URL to postgres database for persistence")
@@ -76,7 +87,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session-encrypt-key must be %d bytes of random data", sessionEncryptionKeyBytesLength)
 	}
 
-	// Configure OIDC sderver
+	// Configure OIDC server
 
 	scfg.Logger = logger
 	scfg.PrometheusRegistry = prometheus.NewRegistry() // TODO: Actually register stuff to this
@@ -100,6 +111,12 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	scfg.Storage = store
+
+	connector, err := conncfg.Open("upstream", logger)
+	if err != nil {
+		return errors.Wrap(err, "Error opening upstream connector")
+	}
+	scfg.Connector = connector
 
 	server, err := server.NewServer(context.Background(), &scfg)
 	if err != nil {
