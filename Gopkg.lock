@@ -29,6 +29,14 @@
   revision = "8ae1da518bd4d9d5a5909090a184af30f336436d"
 
 [[projects]]
+  digest = "1:4147cd387735ac090f7a62e7b8db8ae30ea3aeb5ff1309955e27de149c65b067"
+  name = "github.com/dexidp/dex"
+  packages = ["cmd/example-app"]
+  pruneopts = "UT"
+  revision = "29bc098620352eaa51c2681ee054d4e31844deb1"
+  version = "v2.11.0"
+
+[[projects]]
   digest = "1:296cda2c4a6a7a54964d7b3b0815e2aed215da75217b72033060ffb1c4e4b6ae"
   name = "github.com/felixge/httpsnoop"
   packages = ["."]
@@ -312,6 +320,7 @@
   input-imports = [
     "github.com/alecthomas/template",
     "github.com/coreos/go-oidc",
+    "github.com/dexidp/dex/cmd/example-app",
     "github.com/felixge/httpsnoop",
     "github.com/ghodss/yaml",
     "github.com/golang/protobuf/proto",

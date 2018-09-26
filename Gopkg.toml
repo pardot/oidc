@@ -24,6 +24,7 @@
 #   go-tests = true
 #   unused-packages = true
 
+required = ["github.com/dexidp/dex/cmd/example-app"]
 
 [prune]
   go-tests = true
@@ -80,3 +81,7 @@
 [[constraint]]
   name = "github.com/spf13/cobra"
   branch = "master"
+
+[[constraint]]
+  name = "github.com/dexidp/dex"
+  version = "~2.11.0"
