@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/heroku/deci"
 	"github.com/heroku/deci/internal/server"
+	"github.com/heroku/deci/internal/storage"
 	"github.com/heroku/deci/internal/storage/sql"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -82,7 +83,16 @@ func run(cmd *cobra.Command, args []string) error {
 		return errors.Wrap(err, "failed to configure storage")
 	}
 
-	scfg.Storage = store
+	scfg.Storage = storage.WithStaticClients(store, []storage.Client{
+		{
+			Name:   "Example App",
+			ID:     "example-app",
+			Secret: "ZXhhbXBsZS1hcHAtc2VjcmV0",
+			RedirectURIs: []string{
+				"http://127.0.0.1:5555/callback",
+			},
+		},
+	})
 
 	server, err := server.NewServer(context.Background(), &scfg)
 	if err != nil {
@@ -101,7 +111,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Addr:    addr,
 		Handler: a,
 	}
-	log.Printf("Running on %s", addr)
+	logger.WithField("addr", addr).Info("starting")
 	return srv.ListenAndServe()
 }
 
