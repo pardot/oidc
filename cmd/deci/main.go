@@ -126,7 +126,7 @@ func run(cmd *cobra.Command, args []string) error {
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
 
 	// TODO - load config from somewhere
-	a, err := deci.NewApp(logger, server, session)
+	a, err := deci.NewApp(logger, connector, server, session)
 	if err != nil {
 		return errors.Wrap(err, "Error creating app")
 	}
