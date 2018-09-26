@@ -38,10 +38,6 @@
   name = "github.com/gorilla/mux"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/joeshaw/envdecode"
-
-[[constraint]]
   name = "gopkg.in/square/go-jose.v2"
   version = "~2.1.9"
 
@@ -80,3 +76,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/ugorji/go"
+
+[[constraint]]
+  name = "github.com/spf13/cobra"
+  branch = "master"
