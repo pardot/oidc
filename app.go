@@ -2,6 +2,7 @@ package deci
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
 	"html/template"
@@ -40,21 +41,19 @@ var (
 )
 
 type App struct {
-	logger           logrus.FieldLogger
-	sstore           sessions.Store
-	storage          storage.Storage
-	connector        connector.CallbackConnector
-	dserver          *server.Server
-	relyingPartyName string
+	logger    logrus.FieldLogger
+	sstore    sessions.Store
+	storage   storage.Storage
+	connector connector.CallbackConnector
+	dserver   *server.Server
 
 	router *mux.Router
 }
 
-func NewApp(logger logrus.FieldLogger, cfg *Config, dcfg *server.Config, sstore sessions.Store) (*App, error) {
+func NewApp(logger logrus.FieldLogger, dcfg *server.Config, sstore sessions.Store) (*App, error) {
 	a := &App{
-		logger:           logger,
-		sstore:           sstore,
-		relyingPartyName: cfg.RelyingPartyName,
+		logger: logger,
+		sstore: sstore,
 	}
 
 	router := mux.NewRouter()
@@ -63,9 +62,10 @@ func NewApp(logger logrus.FieldLogger, cfg *Config, dcfg *server.Config, sstore 
 
 	// Not trying to be RESTful here, as I think an RPC interface will be better at some point anyway
 	// See: <https://github.com/heroku/deci/issues/22>
-	router.HandleFunc("/CreateCredentialRequestOptions", a.handleCreateCredentialRequestOptions).Methods("POST")
-	router.HandleFunc("/CreateCredentialCreationOptions", a.handleCreateCredentialCreationOptions).Methods("POST")
+	router.HandleFunc("/CreateEnrollOptions", a.handleCreateEnrollOptions).Methods("POST")
 	router.HandleFunc("/EnrollPublicKey", a.handleEnrollPublicKey).Methods("POST")
+	router.HandleFunc("/CreateAuthenticateOptions", a.handleCreateAuthenticateOptions).Methods("POST")
+	router.HandleFunc("/AuthenticatePublicKey", a.handleAuthenticatePublicKey).Methods("POST")
 
 	gob.Register(&webauthn.PublicKeyCredentialCreationOptions{})
 	gob.Register(&webauthn.PublicKeyCredentialRequestOptions{})
@@ -92,9 +92,9 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	a.renderWithDefaultLayout(w, http.StatusOK, "./templates/index.html.tmpl", nil)
 }
 
-// handleCreateCredentialRequestOptions kicks off the 'authentication ceremony'
+// handleCreateAuthenticateOptions kicks off the 'authentication ceremony'
 // (request credentials from an already-enrolled key)
-func (a *App) handleCreateCredentialRequestOptions(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateAuthenticateOptions(w http.ResponseWriter, r *http.Request) {
 	session, err := a.session(r)
 	if err != nil {
 		a.logger.WithError(err).Error()
@@ -130,9 +130,9 @@ func (a *App) handleCreateCredentialRequestOptions(w http.ResponseWriter, r *htt
 	}
 }
 
-// handleCreateCredentialCreationOptions kicks off the 'registration ceremony' (enroll a key
+// handleCreateEnrollOptions kicks off the 'registration ceremony' (enroll a key
 // for a logged in user)
-func (a *App) handleCreateCredentialCreationOptions(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateEnrollOptions(w http.ResponseWriter, r *http.Request) {
 	// TODO: Somehow authenticate the user using upstream connector
 
 	session, err := a.session(r)
@@ -158,7 +158,7 @@ func (a *App) handleCreateCredentialCreationOptions(w http.ResponseWriter, r *ht
 
 	opts := &webauthn.PublicKeyCredentialCreationOptions{
 		RP: webauthn.PublicKeyCredentialRpEntity{
-			Name: a.relyingPartyName,
+			Name: r.Host,
 		},
 		User: webauthn.PublicKeyCredentialUserEntity{
 			Id:          []byte("TODO"),
@@ -199,7 +199,38 @@ func (a *App) handleEnrollPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.logger.Infof("%#v", publicKeyCredential.Response.AttestationObject)
+	a.logger.WithField("credentialID", base64.StdEncoding.EncodeToString(publicKeyCredential.Response.AttestationObject.AuthenticatorData.CredentialID)).Info()
+	// TODO
+	// delete(session.Values, sessionChallgenKey)
+
+	if err := session.Save(r, w); err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// TODO: Validate challenge and other options
+
+	w.WriteHeader(http.StatusCreated)
+	w.Header().Set("content-type", "application/json")
+}
+
+func (a *App) handleAuthenticatePublicKey(w http.ResponseWriter, r *http.Request) {
+	session, err := a.session(r)
+	if err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	publicKeyCredential := new(webauthn.PublicKeyCredential)
+	if err := json.NewDecoder(r.Body).Decode(publicKeyCredential); err != nil {
+		a.logger.WithError(err).Error("failed to decode PublicKeyCredential from request body")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	a.logger.Infof("%#v", publicKeyCredential.Response.AuthenticatorData)
 	// TODO
 	// delete(session.Values, sessionChallgenKey)
 

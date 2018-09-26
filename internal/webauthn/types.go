@@ -48,8 +48,9 @@ const (
 
 // See: <https://w3c.github.io/webauthn/#assertion-options>
 type PublicKeyCredentialRequestOptions struct {
+	RPID             string                      `json:"rpId,omitempty"`
 	Challenge        []byte                      `json:"challenge"`
-	UserVerification UserVerificationRequirement `json:"userVerification"`
+	UserVerification UserVerificationRequirement `json:"userVerification,omitempty"`
 }
 
 // See: <https://w3c.github.io/webauthn/#dictionary-makecredentialoptions>
@@ -66,6 +67,7 @@ type PublicKeyCredentialCreationOptions struct {
 
 // See: <https://w3c.github.io/webauthn/#dictdef-publickeycredentialrpentity>
 type PublicKeyCredentialRpEntity struct {
+	Id   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	Icon string `json:"icon"`
 }
@@ -104,12 +106,19 @@ type AuthenticatorResponse struct {
 
 	// AttestationObject is defined when a new public key is being enrolled
 	// See: <https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-attestationobject>
-	AttestationObject *AttestationObject `json:"attestationObject"`
+	AttestationObject *AttestationObject `json:"attestationObject,omitempty"`
+
+	// AuthenticatorData, Signature and UserHandle are defined when an existing
+	// public key is used for authentication
+	// See: <https://w3c.github.io/webauthn/#iface-authenticatorassertionresponse>
+	AuthenticatorData *AuthenticatorData `json:"authenticatorData,omitempty"`
+	Signature         []byte             `json:"signature,omitempty"`
+	UserHandle        []byte             `json:"userHandle,omitempty"`
 }
 
 type AttestationObject struct {
-	AuthData AuthData `codec:"authData"`
-	Format   string   `codec:"fmt"`
+	AuthenticatorData AuthenticatorData `codec:"authData"`
+	Format            string            `codec:"fmt"`
 }
 
 func (o *AttestationObject) UnmarshalJSON(data []byte) error {
@@ -126,7 +135,7 @@ func (o *AttestationObject) UnmarshalJSON(data []byte) error {
 }
 
 // See: <https://w3c.github.io/webauthn/#attestation-object>
-type AuthData struct {
+type AuthenticatorData struct {
 	RPIDHash            []byte         // 32 bytes
 	Flags               byte           // 1 byte
 	Counter             uint32         // 4 bytes
@@ -136,13 +145,26 @@ type AuthData struct {
 	// Extensions are left unparsed for now
 }
 
-func (d *AuthData) MarshalBinary() ([]byte, error) {
+func (d *AuthenticatorData) UnmarshalJSON(data []byte) error {
+	data = bytes.Trim(data, `"`)
+
+	enc := base64.StdEncoding
+	b := make([]byte, enc.DecodedLen(len(data)))
+	n, err := enc.Decode(b, data)
+	if err != nil {
+		return err
+	}
+
+	return d.UnmarshalBinary(b[:n])
+}
+
+func (d *AuthenticatorData) MarshalBinary() ([]byte, error) {
 	// Need to define this so codec recognizes us as a BinaryMarshaler, but nothing actually uses it yet
 	return nil, errors.New("not implemented")
 }
 
-func (d *AuthData) UnmarshalBinary(data []byte) error {
-	if len(data) < (32 + 1 + 4 + 16 + 2) {
+func (d *AuthenticatorData) UnmarshalBinary(data []byte) error {
+	if len(data) < 37 {
 		return errors.New("invalid auth data")
 	}
 
@@ -150,40 +172,45 @@ func (d *AuthData) UnmarshalBinary(data []byte) error {
 	d.RPIDHash = data[0:32]
 	d.Flags = data[32]
 	d.Counter = binary.BigEndian.Uint32(data[33:37])
-	d.AAGUID = data[37:53]
 
-	// Credential ID length: 2-byte uint16
-	l := binary.BigEndian.Uint16(data[53:55])
-	rest := data[55:]
-	if len(rest) < int(l) {
-		return errors.New("invalid auth data credential length")
+	// Fields beyond this point are optional
+	// https://w3c.github.io/webauthn/#authenticator-data
+	if len(data) >= 55 {
+		d.AAGUID = data[37:53]
+
+		// Credential ID length: 2-byte uint16
+		l := binary.BigEndian.Uint16(data[53:55])
+		rest := data[55:]
+		if len(rest) < int(l) {
+			return errors.New("invalid auth data credential length")
+		}
+		d.CredentialID = rest[0:int(l)]
+
+		rest = rest[l:]
+		d.CredentialPublicKey = new(COSEPublicKey)
+		if err := codec.NewDecoderBytes(rest, &codec.CborHandle{}).Decode(d.CredentialPublicKey); err != nil {
+			return errors.Wrap(err, "failed to decode public key")
+		}
+
+		// TODO: Extensions
 	}
-	d.CredentialID = rest[0:int(l)]
-
-	rest = rest[l:]
-	d.CredentialPublicKey = new(COSEPublicKey)
-	if err := codec.NewDecoderBytes(rest, &codec.CborHandle{}).Decode(d.CredentialPublicKey); err != nil {
-		return errors.Wrap(err, "failed to decode public key")
-	}
-
-	// TODO: Extensions
 
 	return nil
 }
 
-func (d *AuthData) IsUserPresent() bool {
+func (d *AuthenticatorData) IsUserPresent() bool {
 	return d.Flags&(0x01<<0) > 0
 }
 
-func (d *AuthData) IsUserVerified() bool {
+func (d *AuthenticatorData) IsUserVerified() bool {
 	return d.Flags&(0x01<<2) > 0
 }
 
-func (d *AuthData) IsAttestedCredentialDataIncluded() bool {
+func (d *AuthenticatorData) IsAttestedCredentialDataIncluded() bool {
 	return d.Flags&(0x01<<6) > 0
 }
 
-func (d *AuthData) HasExtensions() bool {
+func (d *AuthenticatorData) HasExtensions() bool {
 	return d.Flags&(0x01<<7) > 0
 }
 

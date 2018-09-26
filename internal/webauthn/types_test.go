@@ -15,7 +15,7 @@ func TestAuthData_UnmarshalBinary(t *testing.T) {
 
 	cases := []struct {
 		AuthData []byte
-		Expected *AuthData
+		Expected *AuthenticatorData
 	}{
 		{
 			AuthData: []byte{
@@ -35,7 +35,7 @@ func TestAuthData_UnmarshalBinary(t *testing.T) {
 				// http://cbor.me/?bytes=A5(20-00-21-44(01020304)-22-44(09080706)-01-00-03-26)
 				0xa5, 0x20, 0x00, 0x21, 0x44, 0x01, 0x02, 0x03, 0x04, 0x22, 0x44, 0x09, 0x08, 0x07, 0x06, 0x01, 0x00, 0x03, 0x26,
 			},
-			Expected: &AuthData{
+			Expected: &AuthenticatorData{
 				RPIDHash:            []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31},
 				Flags:               0x01,
 				Counter:             uint32(0x01020304),
@@ -51,7 +51,7 @@ func TestAuthData_UnmarshalBinary(t *testing.T) {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
 
-			decoded := new(AuthData)
+			decoded := new(AuthenticatorData)
 			err := decoded.UnmarshalBinary(tc.AuthData)
 			if err != nil {
 				t.Fatal(err)
