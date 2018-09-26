@@ -1,0 +1,8 @@
+{{ define "content" }}
+<!-- Immediately kick off enrollment, since the user has previously indicated this is what they want -->
+<script type="text/javascript">
+  ready(function() {
+    attemptEnrollment();
+  });
+</script>
+{{ end }}

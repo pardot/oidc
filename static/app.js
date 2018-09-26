@@ -1,3 +1,37 @@
+function attemptEnrollment() {
+  var req = new XMLHttpRequest();
+  req.open("POST", "/CreateEnrollmentOptions", true);
+  req.setRequestHeader("content-type", "application/json");
+  req.responseType = "json"
+  req.onload = function() {
+    if (req.status == 201) {
+      var publicKeyCredentialCreationOptions = req.response;
+      publicKeyCredentialCreationOptions.challenge = Uint8Array.from(atob(publicKeyCredentialCreationOptions.challenge), c => c.charCodeAt(0));
+      publicKeyCredentialCreationOptions.user.id = Uint8Array.from(atob(publicKeyCredentialCreationOptions.user.id), c => c.charCodeAt(0));
+
+      navigator.credentials.create({
+        publicKey: publicKeyCredentialCreationOptions
+      }).then(function(publicKeyCredential) {
+        console.log(publicKeyCredential);
+        enrollPublicKey(publicKeyCredential)
+      }).catch(function(err) {
+        // TODO
+        console.log("Credential creation failed");
+        console.log(err);
+      });
+    } else {
+      // TODO: Do something more user-friendly here
+      console.log("Credential creation failed");
+    }
+  };
+  req.onerror = function() {
+    // TODO: Do something more user-friendly here
+    console.log("Credential creation failed");
+  };
+
+  req.send(JSON.stringify({}));
+}
+
 function enrollPublicKey(publicKeyCredential) {
   var req = new XMLHttpRequest();
   req.open("POST", "/EnrollPublicKey", true);
@@ -17,6 +51,39 @@ function enrollPublicKey(publicKeyCredential) {
   };
 
   req.send(jsonifyPublicKey(publicKeyCredential));
+}
+
+function attemptAuthentication() {
+  var req = new XMLHttpRequest();
+  req.open("POST", "/CreateAuthenticateOptions", true);
+  req.setRequestHeader("content-type", "application/json");
+  req.responseType = "json"
+  req.onload = function() {
+    if (req.status == 201) {
+      var publicKeyCredentialRequestOptions = req.response;
+      publicKeyCredentialRequestOptions.challenge = ato8a(publicKeyCredentialRequestOptions.challenge);
+
+      navigator.credentials.get({
+        publicKey: publicKeyCredentialRequestOptions
+      }).then(function(publicKeyCredential) {
+        console.log(publicKeyCredential);
+        authenticatePublicKey(publicKeyCredential);
+      }).catch(function(err) {
+      // TODO: Do something more user-friendly here
+        console.log("Getting credentials failed");
+        console.log(err);
+      });
+    } else {
+      // TODO: Do something more user-friendly here
+      console.log("Create authenticate options request returned non-201");
+    }
+  };
+  req.onerror = function() {
+    // TODO: Do something more user-friendly here
+    console.log("Create authenticate options request failed");
+  };
+
+  req.send(JSON.stringify({}));
 }
 
 function authenticatePublicKey(publicKeyCredential) {
@@ -40,71 +107,6 @@ function authenticatePublicKey(publicKeyCredential) {
   req.send(jsonifyPublicKey(publicKeyCredential));
 }
 
-function attemptAuthentication() {
-  var req = new XMLHttpRequest();
-  req.open("POST", "/CreateAuthenticateOptions", true);
-  req.setRequestHeader("content-type", "application/json");
-  req.responseType = "json"
-  req.onload = function() {
-    if (req.status == 201) {
-      var publicKeyCredentialRequestOptions = req.response;
-      publicKeyCredentialRequestOptions.challenge = ato8a(publicKeyCredentialRequestOptions.challenge);
-
-      navigator.credentials.get({
-        publicKey: publicKeyCredentialRequestOptions
-      }).then(function(publicKeyCredential) {
-        authenticatePublicKey(publicKeyCredential);
-      }).catch(function(err) {
-        // TODO
-        console.log("Getting credentials failed");
-        console.log(err);
-      });
-    } else {
-      // TODO: Do something more user-friendly here
-      console.log("Create authenticate options request returned non-201");
-    }
-  };
-  req.onerror = function() {
-    // TODO: Do something more user-friendly here
-    console.log("Create authenticate options request failed");
-  };
-
-  req.send(JSON.stringify({}));
-}
-
-function attemptEnrollment() {
-  var req = new XMLHttpRequest();
-  req.open("POST", "/CreateEnrollOptions", true);
-  req.setRequestHeader("content-type", "application/json");
-  req.responseType = "json"
-  req.onload = function() {
-    if (req.status == 201) {
-      var publicKeyCredentialCreationOptions = req.response;
-      publicKeyCredentialCreationOptions.challenge = Uint8Array.from(atob(publicKeyCredentialCreationOptions.challenge), c => c.charCodeAt(0));
-      publicKeyCredentialCreationOptions.user.id = Uint8Array.from(atob(publicKeyCredentialCreationOptions.user.id), c => c.charCodeAt(0));
-
-      navigator.credentials.create({
-        publicKey: publicKeyCredentialCreationOptions
-      }).then(function(publicKeyCredential) {
-        enrollPublicKey(publicKeyCredential)
-      }).catch(function(err) {
-        // TODO
-        console.log("Credential creation failed");
-        console.log(err);
-      });
-    } else {
-      // TODO: Do something more user-friendly here
-      console.log("Credential creation failed");
-    }
-  };
-  req.onerror = function() {
-    // TODO: Do something more user-friendly here
-    console.log("Credential creation failed");
-  };
-
-  req.send(JSON.stringify({}));
-}
-
 function jsonifyPublicKey(publicKeyCredential) {
   return JSON.stringify({
     id: publicKeyCredential.id,
@@ -119,25 +121,3 @@ function jsonifyPublicKey(publicKeyCredential) {
     }
   })
 }
-
-function initiateAuthn(e) {
-  e.preventDefault();
-  attemptAuthentication()
-}
-
-function initiateRegistration(e) {
-  e.preventDefault();
-  attemptEnrollment();
-}
-
-ready(function() {
-  var ele = document.getElementById("authnForm");
-  if (ele) {
-    ele.addEventListener("submit", initiateAuthn);
-  }
-
-  var ele = document.getElementById("registrationLink");
-  if (ele) {
-    ele.addEventListener("click", initiateRegistration);
-  }
-});

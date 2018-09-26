@@ -237,7 +237,11 @@ func (s *Server) FinalizeLogin(identity connector.Identity, authReq storage.Auth
 	s.logger.Infof("login successful: username=%q, email=%q, groups=%q",
 		claims.Username, email, claims.Groups)
 
-	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + authReq.ID, nil
+	return s.ApprovalURL(authReq.ID), nil
+}
+
+func (s *Server) ApprovalURL(reqID string) string {
+	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + reqID
 }
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
