@@ -3,16 +3,19 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 
 	"net/http"
 
+	"crypto/rand"
+
 	"github.com/gorilla/sessions"
 	"github.com/heroku/deci"
 	"github.com/heroku/deci/internal/server"
-	"github.com/joeshaw/envdecode"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -20,47 +23,50 @@ const (
 	sessionEncryptionKeyBytesLength     = 32
 )
 
-type config struct {
-	Port int `env:"PORT,default=5556"`
-
-	// SessionAuthenticationKey is a 64-byte, base64-encoded key used to
-	// authenticate sessions
-	SessionAuthenticationKey string `env:"SESSION_AUTHENTICATION_KEY,required"`
-	// SessionEncryptionKey is a 32-byte, base64-encoded key used to encrypt
-	// sessions
-	SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY,required"`
-}
-
 func main() {
-	if err := run(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+var cmd = cobra.Command{
+	RunE: run,
+}
+
+var ( // flags
+	addr                     string
+	dcfg                     server.Config
+	sessionAuthenticationKey string
+	sessionEncryptionKey     string
+)
+
+func init() {
+	cmd.Flags().StringVar(&addr, "addr", "localhost:5556", "Address to listen on")
+	cmd.Flags().StringVar(&dcfg.Issuer, "issuer", "http://localhost:5556", "Issuer URL for OIDC provider")
+	cmd.Flags().StringVar(&sessionAuthenticationKey, "session-auth-key", mustGenRandB64(64), "Session authentication key, 64-byte, base64-encoded")
+	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
+}
+
+func run(cmd *cobra.Command, args []string) error {
 	logger := logrus.New()
 
-	var cfg config
-	if err := envdecode.StrictDecode(&cfg); err != nil {
-		return errors.Wrap(err, "failed to load configuration")
-	}
-
-	sessionAuthenticationKey, err := base64.StdEncoding.DecodeString(cfg.SessionAuthenticationKey)
+	sessionAuthenticationKey, err := base64.StdEncoding.DecodeString(sessionAuthenticationKey)
 	if err != nil {
-		return errors.Wrap(err, "failed to base64 decode SESSION_AUTHENTICATION_KEY")
+		return errors.Wrap(err, "failed to base64 decode session-auth-key")
 	} else if len(sessionAuthenticationKey) != sessionAuthenticationKeyBytesLength {
-		return fmt.Errorf("SESSION_AUTHENTICATION_KEY must be %d bytes of random data", sessionAuthenticationKeyBytesLength)
+		return fmt.Errorf("session-auth-key must be %d bytes of random data", sessionAuthenticationKeyBytesLength)
 	}
 
-	sessionEncryptionKey, err := base64.StdEncoding.DecodeString(cfg.SessionEncryptionKey)
+	sessionEncryptionKey, err := base64.StdEncoding.DecodeString(sessionEncryptionKey)
 	if err != nil {
-		return errors.Wrap(err, "failed to base64 decode SESSION_ENCRYPTION_KEY")
+		return errors.Wrap(err, "failed to base64 decode session-encrypt-key")
 	} else if len(sessionEncryptionKey) != sessionEncryptionKeyBytesLength {
-		return fmt.Errorf("SESSION_ENCRYPTION_KEY must be %d bytes of random data", sessionEncryptionKeyBytesLength)
+		return fmt.Errorf("session-encrypt-key must be %d bytes of random data", sessionEncryptionKeyBytesLength)
 	}
 
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
+
 	// TODO - load config from somewhere
 	a, err := deci.NewApp(logger, &server.Config{}, session)
 	if err != nil {
@@ -68,8 +74,17 @@ func run() error {
 	}
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Addr:    addr,
 		Handler: a,
 	}
 	return srv.ListenAndServe()
+}
+
+func mustGenRandB64(len int) string {
+	b := make([]byte, len)
+	_, err := rand.Read(b)
+	if err != nil {
+		log.Fatalf("Error fetching %d random bytes [%+v]", len, err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }

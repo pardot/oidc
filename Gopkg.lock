@@ -93,12 +93,12 @@
   version = "v1.1.2"
 
 [[projects]]
-  branch = "master"
-  digest = "1:bd1b5ce5a04000dbe5d1c22812699509c17a8572c6385a43023c7e08ea4e7623"
-  name = "github.com/joeshaw/envdecode"
+  digest = "1:870d441fe217b8e689d7949fef6e43efbc787e50f200cb1e70dbca9204a1d6be"
+  name = "github.com/inconshreveable/mousetrap"
   packages = ["."]
   pruneopts = "UT"
-  revision = "c9e0158544672841c3ebf49308f536d918f2e525"
+  revision = "76626ae9c91c4f2a10f34cad8ce83ea42c93bb75"
+  version = "v1.0"
 
 [[projects]]
   branch = "master"
@@ -197,6 +197,22 @@
   pruneopts = "UT"
   revision = "3e01752db0189b9157070a0e1668a620f9a85da2"
   version = "v1.0.6"
+
+[[projects]]
+  branch = "master"
+  digest = "1:ecca00f45de9d6b99ab03b7026639d1b633e8715bb403321ca8cea8864032230"
+  name = "github.com/spf13/cobra"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "8d114be902bc9f08717804830a55c48378108a28"
+
+[[projects]]
+  branch = "master"
+  digest = "1:c1b1102241e7f645bc8e0c22ae352e8f0dc6484b6cb4d132fa9f24174e0119e2"
+  name = "github.com/spf13/pflag"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "298182f68c66c05229eb03ac171abe6e309ee79a"
 
 [[projects]]
   branch = "master"
@@ -302,12 +318,12 @@
     "github.com/gorilla/handlers",
     "github.com/gorilla/mux",
     "github.com/gorilla/sessions",
-    "github.com/joeshaw/envdecode",
     "github.com/kylelemons/godebug/pretty",
     "github.com/lib/pq",
     "github.com/pkg/errors",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/sirupsen/logrus",
+    "github.com/spf13/cobra",
     "github.com/ugorji/go/codec",
     "golang.org/x/crypto/bcrypt",
     "golang.org/x/oauth2",
