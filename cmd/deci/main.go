@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -13,7 +14,9 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/heroku/deci"
 	"github.com/heroku/deci/internal/server"
+	"github.com/heroku/deci/internal/storage/sql"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -65,10 +68,35 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session-encrypt-key must be %d bytes of random data", sessionEncryptionKeyBytesLength)
 	}
 
+	scfg := &server.Config{
+		Logger:             logger,
+		PrometheusRegistry: prometheus.NewRegistry(), // TODO: Actually register stuff to this
+	}
+
+	psql := &sql.Postgres{
+		Database: "deci",
+		User:     "deci",
+		Host:     "localhost",
+		SSL: sql.PostgresSSL{
+			Mode: "disable",
+		},
+	}
+
+	storage, err := psql.Open(logger)
+	if err != nil {
+		return err
+	}
+	scfg.Storage = storage
+
+	server, err := server.NewServer(context.Background(), scfg)
+	if err != nil {
+		return err
+	}
+
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
 
 	// TODO - load config from somewhere
-	a, err := deci.NewApp(logger, &server.Config{}, session)
+	a, err := deci.NewApp(logger, server, session)
 	if err != nil {
 		return errors.Wrap(err, "Error creating app")
 	}
