@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"runtime"
@@ -39,6 +40,7 @@ func cleanDB(c *conn) error {
 		delete from refresh_token;
 		delete from keys;
 		delete from password;
+		delete from webauth_association;
 	`)
 	return err
 }
@@ -56,22 +58,11 @@ func getenv(key, defaultVal string) string {
 	return defaultVal
 }
 
-const testPostgresEnv = "DEX_POSTGRES_HOST"
+var postgresURL = flag.String("postgres-url", "", "URL of postgres DB to test against. Postgres test skipped if empty")
 
 func TestPostgres(t *testing.T) {
-	host := os.Getenv(testPostgresEnv)
-	if host == "" {
-		t.Skipf("test environment variable %q not set, skipping", testPostgresEnv)
-	}
-	p := Postgres{
-		Database: getenv("DEX_POSTGRES_DATABASE", "postgres"),
-		User:     getenv("DEX_POSTGRES_USER", "postgres"),
-		Password: getenv("DEX_POSTGRES_PASSWORD", "postgres"),
-		Host:     host,
-		SSL: PostgresSSL{
-			Mode: sslDisable, // Postgres container doesn't support SSL.
-		},
-		ConnectionTimeout: 5,
+	if *postgresURL == "" {
+		t.Skip("-postgres-url not set, skipping")
 	}
 
 	// t.Fatal has a bad habbit of not actually printing the error
@@ -81,10 +72,11 @@ func TestPostgres(t *testing.T) {
 	}
 
 	newStorage := func() storage.Storage {
-		conn, err := p.open(logger)
+		stor, err := PostgresForURL(logger, *postgresURL)
 		if err != nil {
-			fatal(err)
+			t.Fatalf("Error getting database instance [%+v]", err)
 		}
+		conn := stor.(*conn)
 		if err := cleanDB(conn); err != nil {
 			fatal(err)
 		}

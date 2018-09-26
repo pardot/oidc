@@ -1,4 +1,14 @@
 language: go
 
+services:
+  - postgresql
+
 go:
   - "1.11.x"
+
+before_script:
+  - createdb deci-test
+
+script:
+  - make
+  - go test -v ./internal/storage/sql -postgres-url=postgres:///deci-test

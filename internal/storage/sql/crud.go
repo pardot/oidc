@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/heroku/deci/internal/connector"
 	"github.com/heroku/deci/internal/storage"
+	"github.com/heroku/deci/internal/webauthn"
+	"github.com/pkg/errors"
 )
 
 // TODO(ericchiang): The update, insert, and select methods queries are all
@@ -152,9 +154,9 @@ func (c *conn) UpdateAuthRequest(id string, updater func(a storage.AuthRequest) 
 				claims_user_id = $9, claims_username = $10, claims_email = $11,
 				claims_email_verified = $12,
 				claims_groups = $13,
-				connector_data = $15,
-				expiry = $16
-			where id = $17;
+				connector_data = $14,
+				expiry = $15
+			where id = $16;
 		`,
 			a.ClientID, encoder(a.ResponseTypes), encoder(a.Scopes), a.RedirectURI, a.Nonce, a.State,
 			a.ForceApprovalPrompt, a.LoggedIn,
@@ -697,7 +699,7 @@ func (c *conn) GetOfflineSessions(userID string) (storage.OfflineSessions, error
 func getOfflineSessions(q querier, userID string) (storage.OfflineSessions, error) {
 	return scanOfflineSessions(q.QueryRow(`
 		select
-			user_id, conn_id, refresh
+			user_id, refresh
 		from offline_session
 		where user_id = $1
 		`, userID))
@@ -856,6 +858,95 @@ func (c *conn) delete(table, field, id string) error {
 	}
 	if n < 1 {
 		return storage.ErrNotFound
+	}
+	return nil
+}
+
+func (c *conn) UpsertWebauthAssociation(credentialID []byte, counter int, key webauthn.COSEPublicKey, identity connector.Identity) error {
+	return c.ExecTx(func(tx *trans) error {
+		var notExist bool
+
+		var currCount int
+
+		err := tx.QueryRow(`
+			select counter from webauth_association where credential_id = $1;
+		`, credentialID).Scan(&currCount)
+		if err != nil {
+			if err != sql.ErrNoRows {
+				return errors.Wrap(err, "error checking for credential existence")
+			}
+			notExist = true
+		}
+
+		if notExist {
+			_, err = tx.Exec(`
+				insert into webauth_association (
+					credential_id, counter, key, identity
+				)
+				values ($1, $2, $3, $4);
+			`,
+				credentialID,
+				counter,
+				encoder(&key),
+				encoder(&identity),
+			)
+			if err != nil {
+				return errors.Wrap(err, "failed to insert webauth identity")
+			}
+		} else {
+			if counter <= currCount {
+				return fmt.Errorf("New count %d not greater than existing %d", counter, currCount)
+			}
+			_, err = tx.Exec(`
+				update webauth_association
+				set
+					counter = $1,
+					key = $2,
+					identity = $3
+				where credential_id = $4;
+			`,
+				counter,
+				encoder(&key),
+				encoder(&identity),
+				credentialID,
+			)
+			if err != nil {
+				return errors.Wrap(err, "failed to update webauth identity")
+			}
+		}
+		return nil
+	})
+}
+
+func (c *conn) GetWebauthAssociation(credentialID []byte) (webauthn.COSEPublicKey, connector.Identity, error) {
+	var (
+		key   webauthn.COSEPublicKey
+		ident connector.Identity
+	)
+
+	err := c.QueryRow(`
+		select
+			key, identity
+		from webauth_association
+		where credential_id = $1;
+		`, credentialID).Scan(
+		decoder(&key), decoder(&ident),
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return key, ident, storage.ErrNotFound
+		}
+		return key, ident, errors.Wrap(err, "failed to get webauthn association")
+
+	}
+
+	return key, ident, nil
+}
+
+func (c *conn) DeleteWebauthAssociation(credentialID []byte) error {
+	_, err := c.Exec(`delete from webauth_association where credential_id = $1`, credentialID)
+	if err != nil {
+		return errors.Wrap(err, "error deleting webauth association")
 	}
 	return nil
 }

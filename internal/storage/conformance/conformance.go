@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heroku/deci/internal/connector"
+	"github.com/heroku/deci/internal/webauthn"
+
 	jose "gopkg.in/square/go-jose.v2"
 
 	"golang.org/x/crypto/bcrypt"
@@ -19,7 +22,7 @@ import (
 )
 
 // ensure that values being tested on never expire.
-var neverExpire = time.Now().UTC().Add(time.Hour * 24 * 365 * 100)
+var neverExpire = time.Now().Add(time.Hour * 24 * 365 * 100)
 
 type subTest struct {
 	name string
@@ -50,6 +53,7 @@ func RunTests(t *testing.T, newStorage func() storage.Storage) {
 		{"OfflineSessionCRUD", testOfflineSessionCRUD},
 		{"GarbageCollection", testGC},
 		{"TimezoneSupport", testTimezones},
+		{"WebauthnAssociation", testWebauthnAssociation},
 	})
 }
 
@@ -309,8 +313,8 @@ func testRefreshTokenCRUD(t *testing.T, s storage.Storage) {
 		Nonce:     "foo",
 		ClientID:  "client_id",
 		Scopes:    []string{"openid", "email", "profile"},
-		CreatedAt: time.Now().UTC().Round(time.Millisecond),
-		LastUsed:  time.Now().UTC().Round(time.Millisecond),
+		CreatedAt: time.Now().Round(time.Millisecond),
+		LastUsed:  time.Now().Round(time.Millisecond),
 		Claims: storage.Claims{
 			UserID:        "1",
 			Username:      "jane",
@@ -348,8 +352,8 @@ func testRefreshTokenCRUD(t *testing.T, s storage.Storage) {
 		Nonce:     "foo_2",
 		ClientID:  "client_id_2",
 		Scopes:    []string{"openid", "email", "profile"},
-		CreatedAt: time.Now().UTC().Round(time.Millisecond),
-		LastUsed:  time.Now().UTC().Round(time.Millisecond),
+		CreatedAt: time.Now().Round(time.Millisecond),
+		LastUsed:  time.Now().Round(time.Millisecond),
 		Claims: storage.Claims{
 			UserID:        "2",
 			Username:      "john",
@@ -366,7 +370,7 @@ func testRefreshTokenCRUD(t *testing.T, s storage.Storage) {
 
 	getAndCompare(id2, refresh2)
 
-	updatedAt := time.Now().UTC().Round(time.Millisecond)
+	updatedAt := time.Now().Round(time.Millisecond)
 
 	updater := func(r storage.RefreshToken) (storage.RefreshToken, error) {
 		r.Token = "spam"
@@ -536,8 +540,8 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 	tokenRef := storage.RefreshTokenRef{
 		ID:        id,
 		ClientID:  "client_id",
-		CreatedAt: time.Now().UTC().Round(time.Millisecond),
-		LastUsed:  time.Now().UTC().Round(time.Millisecond),
+		CreatedAt: time.Now().Round(time.Millisecond),
+		LastUsed:  time.Now().Round(time.Millisecond),
 	}
 	session1.Refresh[tokenRef.ClientID] = &tokenRef
 
@@ -575,7 +579,7 @@ func testKeysCRUD(t *testing.T, s storage.Storage) {
 		if got, err := s.GetKeys(); err != nil {
 			t.Errorf("failed to get keys: %v", err)
 		} else {
-			got.NextRotation = got.NextRotation.UTC()
+			got.NextRotation = got.NextRotation
 			if diff := pretty.Compare(k, got); diff != "" {
 				t.Errorf("got keys did not equal expected: %s", diff)
 			}
@@ -583,7 +587,7 @@ func testKeysCRUD(t *testing.T, s storage.Storage) {
 	}
 
 	// Postgres isn't as accurate with nano seconds as we'd like
-	n := time.Now().UTC().Round(time.Second)
+	n := time.Now().Round(time.Second)
 
 	keys1 := storage.Keys{
 		SigningKey:    jsonWebKeys[0].Private,
@@ -763,5 +767,47 @@ func testTimezones(t *testing.T, s storage.Storage) {
 	wantTime := expiry
 	if !gotTime.Equal(wantTime) {
 		t.Fatalf("expected expiry %v got %v", wantTime, gotTime)
+	}
+}
+
+func testWebauthnAssociation(t *testing.T, s storage.Storage) {
+	credID := []byte("test-cred")
+
+	err := s.UpsertWebauthAssociation(credID, 1, webauthn.COSEPublicKey{}, connector.Identity{})
+	if err != nil {
+		t.Fatalf("Failed to create association [%+v]", err)
+	}
+
+	err = s.UpsertWebauthAssociation(credID, 1, webauthn.COSEPublicKey{}, connector.Identity{})
+	if err == nil {
+		t.Fatal("Expected counter reuse to fail")
+	}
+
+	err = s.UpsertWebauthAssociation(credID, 2, webauthn.COSEPublicKey{}, connector.Identity{UserID: "tester"})
+	if err != nil {
+		t.Fatalf("Failed to update association [%+v]", err)
+	}
+
+	_, id, err := s.GetWebauthAssociation(credID)
+	if err != nil {
+		t.Fatalf("Get should not error [%+v]", err)
+	}
+	if id.UserID != "tester" {
+		t.Fatal("Did not return updated ID")
+	}
+
+	_, _, err = s.GetWebauthAssociation([]byte("not-found"))
+	if err != storage.ErrNotFound {
+		t.Fatalf("Expected storage., got [%+v]", err)
+	}
+
+	err = s.DeleteWebauthAssociation(credID)
+	if err != nil {
+		t.Fatalf("Unexpected error deleting association [%+v]", err)
+	}
+
+	_, _, err = s.GetWebauthAssociation(credID)
+	if err != storage.ErrNotFound {
+		t.Fatalf("Deleted entry did not return storage., got [%+v]", err)
 	}
 }

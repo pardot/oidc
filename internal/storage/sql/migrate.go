@@ -168,7 +168,18 @@ var migrations = []migration{
 			create table offline_session (
 				user_id text not null,
 				refresh bytea not null,
-				PRIMARY KEY (user_id, conn_id)
+				PRIMARY KEY (user_id)
+			);
+		`,
+	},
+	{
+		stmt: `
+			create table webauth_association (
+				credential_id bytea not null,
+				counter bigint not null,
+				key bytea not null, -- json key structure
+				identity bytea not null, -- identity structure
+				PRIMARY KEY (credential_id)
 			);
 		`,
 	},

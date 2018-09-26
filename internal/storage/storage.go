@@ -108,8 +108,9 @@ type Storage interface {
 	// UpsertWebauthAssociation links the webauthn credential identified by
 	// `credentialID` with the public key `key` and the upstream identity
 	// `identity`. This will create a new record if it doesn't exist, or update
-	// the record for `credentialID` if it does
-	UpsertWebauthAssociation(credentialID []byte, key webauthn.COSEPublicKey, identity connector.Identity) error
+	// the record for `credentialID` if it does. If counter is not greater than
+	// the previously counter, the update will error.
+	UpsertWebauthAssociation(credentialID []byte, counter int, key webauthn.COSEPublicKey, identity connector.Identity) error
 	// GetWebauthAssociation returns the public key and identity associated with a given credentialID
 	GetWebauthAssociation(credentialID []byte) (key webauthn.COSEPublicKey, identity connector.Identity, err error)
 	// DeleteWebauthAssociation removes the upstream identity association and
