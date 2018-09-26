@@ -167,7 +167,6 @@ var migrations = []migration{
 		stmt: `
 			create table offline_session (
 				user_id text not null,
-				conn_id text not null,
 				refresh bytea not null,
 				PRIMARY KEY (user_id, conn_id)
 			);

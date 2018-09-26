@@ -169,7 +169,6 @@ func testAuthCodeCRUD(t *testing.T, s storage.Storage) {
 		Nonce:         "foobar",
 		Scopes:        []string{"openid", "email"},
 		Expiry:        neverExpire,
-		ConnectorID:   "ldap",
 		ConnectorData: []byte(`{"some":"data"}`),
 		Claims: storage.Claims{
 			UserID:        "1",
@@ -191,7 +190,6 @@ func testAuthCodeCRUD(t *testing.T, s storage.Storage) {
 		Nonce:         "foobar",
 		Scopes:        []string{"openid", "email"},
 		Expiry:        neverExpire,
-		ConnectorID:   "ldap",
 		ConnectorData: []byte(`{"some":"data"}`),
 		Claims: storage.Claims{
 			UserID:        "2",
@@ -306,14 +304,13 @@ func testClientCRUD(t *testing.T, s storage.Storage) {
 func testRefreshTokenCRUD(t *testing.T, s storage.Storage) {
 	id := storage.NewID()
 	refresh := storage.RefreshToken{
-		ID:          id,
-		Token:       "bar",
-		Nonce:       "foo",
-		ClientID:    "client_id",
-		ConnectorID: "client_secret",
-		Scopes:      []string{"openid", "email", "profile"},
-		CreatedAt:   time.Now().UTC().Round(time.Millisecond),
-		LastUsed:    time.Now().UTC().Round(time.Millisecond),
+		ID:        id,
+		Token:     "bar",
+		Nonce:     "foo",
+		ClientID:  "client_id",
+		Scopes:    []string{"openid", "email", "profile"},
+		CreatedAt: time.Now().UTC().Round(time.Millisecond),
+		LastUsed:  time.Now().UTC().Round(time.Millisecond),
 		Claims: storage.Claims{
 			UserID:        "1",
 			Username:      "jane",
@@ -346,14 +343,13 @@ func testRefreshTokenCRUD(t *testing.T, s storage.Storage) {
 
 	id2 := storage.NewID()
 	refresh2 := storage.RefreshToken{
-		ID:          id2,
-		Token:       "bar_2",
-		Nonce:       "foo_2",
-		ClientID:    "client_id_2",
-		ConnectorID: "client_secret",
-		Scopes:      []string{"openid", "email", "profile"},
-		CreatedAt:   time.Now().UTC().Round(time.Millisecond),
-		LastUsed:    time.Now().UTC().Round(time.Millisecond),
+		ID:        id2,
+		Token:     "bar_2",
+		Nonce:     "foo_2",
+		ClientID:  "client_id_2",
+		Scopes:    []string{"openid", "email", "profile"},
+		CreatedAt: time.Now().UTC().Round(time.Millisecond),
+		LastUsed:  time.Now().UTC().Round(time.Millisecond),
 		Claims: storage.Claims{
 			UserID:        "2",
 			Username:      "john",
@@ -500,7 +496,6 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 	userID1 := storage.NewID()
 	session1 := storage.OfflineSessions{
 		UserID:  userID1,
-		ConnID:  "Conn1",
 		Refresh: make(map[string]*storage.RefreshTokenRef),
 	}
 
@@ -517,7 +512,6 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 	userID2 := storage.NewID()
 	session2 := storage.OfflineSessions{
 		UserID:  userID2,
-		ConnID:  "Conn2",
 		Refresh: make(map[string]*storage.RefreshTokenRef),
 	}
 
@@ -526,7 +520,7 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 	}
 
 	getAndCompare := func(userID string, connID string, want storage.OfflineSessions) {
-		gr, err := s.GetOfflineSessions(userID, connID)
+		gr, err := s.GetOfflineSessions(userID)
 		if err != nil {
 			t.Errorf("get offline session: %v", err)
 			return
@@ -547,7 +541,7 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 	}
 	session1.Refresh[tokenRef.ClientID] = &tokenRef
 
-	if err := s.UpdateOfflineSessions(session1.UserID, session1.ConnID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
+	if err := s.UpdateOfflineSessions(session1.UserID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
 		old.Refresh[tokenRef.ClientID] = &tokenRef
 		return old, nil
 	}); err != nil {
@@ -556,15 +550,15 @@ func testOfflineSessionCRUD(t *testing.T, s storage.Storage) {
 
 	getAndCompare(userID1, "Conn1", session1)
 
-	if err := s.DeleteOfflineSessions(session1.UserID, session1.ConnID); err != nil {
+	if err := s.DeleteOfflineSessions(session1.UserID); err != nil {
 		t.Fatalf("failed to delete offline session: %v", err)
 	}
 
-	if err := s.DeleteOfflineSessions(session2.UserID, session2.ConnID); err != nil {
+	if err := s.DeleteOfflineSessions(session2.UserID); err != nil {
 		t.Fatalf("failed to delete offline session: %v", err)
 	}
 
-	_, err = s.GetOfflineSessions(session1.UserID, session1.ConnID)
+	_, err = s.GetOfflineSessions(session1.UserID)
 	mustBeErrNotFound(t, "offline session", err)
 }
 
@@ -635,7 +629,6 @@ func testGC(t *testing.T, s storage.Storage) {
 		Nonce:         "foobar",
 		Scopes:        []string{"openid", "email"},
 		Expiry:        expiry,
-		ConnectorID:   "ldap",
 		ConnectorData: []byte(`{"some":"data"}`),
 		Claims: storage.Claims{
 			UserID:        "1",
@@ -746,7 +739,6 @@ func testTimezones(t *testing.T, s storage.Storage) {
 		Nonce:         "foobar",
 		Scopes:        []string{"openid", "email"},
 		Expiry:        expiry,
-		ConnectorID:   "ldap",
 		ConnectorData: []byte(`{"some":"data"}`),
 		Claims: storage.Claims{
 			UserID:        "1",

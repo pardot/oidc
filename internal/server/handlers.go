@@ -437,7 +437,6 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 			ID:            storage.NewID(),
 			Token:         storage.NewID(),
 			ClientID:      authCode.ClientID,
-			ConnectorID:   authCode.ConnectorID,
 			Scopes:        authCode.Scopes,
 			Claims:        authCode.Claims,
 			Nonce:         authCode.Nonce,
@@ -484,7 +483,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 		}
 
 		// Try to retrieve an existing OfflineSession object for the corresponding user.
-		if session, err := s.storage.GetOfflineSessions(refresh.Claims.UserID, refresh.ConnectorID); err != nil {
+		if session, err := s.storage.GetOfflineSessions(refresh.Claims.UserID); err != nil {
 			if err != storage.ErrNotFound {
 				s.logger.Errorf("failed to get offline session: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -493,7 +492,6 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 			}
 			offlineSessions := storage.OfflineSessions{
 				UserID:  refresh.Claims.UserID,
-				ConnID:  refresh.ConnectorID,
 				Refresh: make(map[string]*storage.RefreshTokenRef),
 			}
 			offlineSessions.Refresh[tokenRef.ClientID] = &tokenRef
@@ -518,7 +516,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 			}
 
 			// Update existing OfflineSession obj with new RefreshTokenRef.
-			if err := s.storage.UpdateOfflineSessions(session.UserID, session.ConnID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
+			if err := s.storage.UpdateOfflineSessions(session.UserID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
 				old.Refresh[tokenRef.ClientID] = &tokenRef
 				return old, nil
 			}); err != nil {
@@ -676,7 +674,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 
 	// Update LastUsed time stamp in refresh token reference object
 	// in offline session for the user.
-	if err := s.storage.UpdateOfflineSessions(refresh.Claims.UserID, refresh.ConnectorID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
+	if err := s.storage.UpdateOfflineSessions(refresh.Claims.UserID, func(old storage.OfflineSessions) (storage.OfflineSessions, error) {
 		if old.Refresh[refresh.ClientID].ID != refresh.ID {
 			return old, errors.New("refresh token invalid")
 		}

@@ -114,7 +114,7 @@ func (c *conn) CreateAuthRequest(a storage.AuthRequest) error {
 			expiry
 		)
 		values (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 		);
 	`,
 		a.ID, a.ClientID, encoder(a.ResponseTypes), encoder(a.Scopes), a.RedirectURI, a.Nonce, a.State,
@@ -206,14 +206,14 @@ func (c *conn) CreateAuthCode(a storage.AuthCode) error {
 			id, client_id, scopes, nonce, redirect_uri,
 			claims_user_id, claims_username,
 			claims_email, claims_email_verified, claims_groups,
-			connector_id, connector_data,
+			connector_data,
 			expiry
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 	`,
 		a.ID, a.ClientID, encoder(a.Scopes), a.Nonce, a.RedirectURI, a.Claims.UserID,
 		a.Claims.Username, a.Claims.Email, a.Claims.EmailVerified, encoder(a.Claims.Groups),
-		a.ConnectorID, a.ConnectorData, a.Expiry,
+		a.ConnectorData, a.Expiry,
 	)
 
 	if err != nil {
@@ -231,13 +231,13 @@ func (c *conn) GetAuthCode(id string) (a storage.AuthCode, err error) {
 			id, client_id, scopes, nonce, redirect_uri,
 			claims_user_id, claims_username,
 			claims_email, claims_email_verified, claims_groups,
-			connector_id, connector_data,
+			connector_data,
 			expiry
 		from auth_code where id = $1;
 	`, id).Scan(
 		&a.ID, &a.ClientID, decoder(&a.Scopes), &a.Nonce, &a.RedirectURI, &a.Claims.UserID,
 		&a.Claims.Username, &a.Claims.Email, &a.Claims.EmailVerified, decoder(&a.Claims.Groups),
-		&a.ConnectorID, &a.ConnectorData, &a.Expiry,
+		&a.ConnectorData, &a.Expiry,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -254,15 +254,15 @@ func (c *conn) CreateRefresh(r storage.RefreshToken) error {
 			id, client_id, scopes, nonce,
 			claims_user_id, claims_username, claims_email, claims_email_verified,
 			claims_groups,
-			connector_id, connector_data,
+			connector_data,
 			token, created_at, last_used
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 	`,
 		r.ID, r.ClientID, encoder(r.Scopes), r.Nonce,
 		r.Claims.UserID, r.Claims.Username, r.Claims.Email, r.Claims.EmailVerified,
 		encoder(r.Claims.Groups),
-		r.ConnectorID, r.ConnectorData,
+		r.ConnectorData,
 		r.Token, r.CreatedAt, r.LastUsed,
 	)
 	if err != nil {
@@ -294,18 +294,17 @@ func (c *conn) UpdateRefreshToken(id string, updater func(old storage.RefreshTok
 				claims_email = $6,
 				claims_email_verified = $7,
 				claims_groups = $8,
-				connector_id = $9,
-				connector_data = $10,
-				token = $11,
-				created_at = $12,
-				last_used = $13
+				connector_data = $9,
+				token = $10,
+				created_at = $11,
+				last_used = $12
 			where
-				id = $14
+				id = $13
 		`,
 			r.ClientID, encoder(r.Scopes), r.Nonce,
 			r.Claims.UserID, r.Claims.Username, r.Claims.Email, r.Claims.EmailVerified,
 			encoder(r.Claims.Groups),
-			r.ConnectorID, r.ConnectorData,
+			r.ConnectorData,
 			r.Token, r.CreatedAt, r.LastUsed, id,
 		)
 		if err != nil {
@@ -325,7 +324,7 @@ func getRefresh(q querier, id string) (storage.RefreshToken, error) {
 			id, client_id, scopes, nonce,
 			claims_user_id, claims_username, claims_email, claims_email_verified,
 			claims_groups,
-			connector_id, connector_data,
+			connector_data,
 			token, created_at, last_used
 		from refresh_token where id = $1;
 	`, id))
@@ -337,7 +336,7 @@ func (c *conn) ListRefreshTokens() ([]storage.RefreshToken, error) {
 			id, client_id, scopes, nonce,
 			claims_user_id, claims_username, claims_email, claims_email_verified,
 			claims_groups,
-			connector_id, connector_data,
+			connector_data,
 			token, created_at, last_used
 		from refresh_token;
 	`)
@@ -363,7 +362,7 @@ func scanRefresh(s scanner) (r storage.RefreshToken, err error) {
 		&r.ID, &r.ClientID, decoder(&r.Scopes), &r.Nonce,
 		&r.Claims.UserID, &r.Claims.Username, &r.Claims.Email, &r.Claims.EmailVerified,
 		decoder(&r.Claims.Groups),
-		&r.ConnectorID, &r.ConnectorData,
+		&r.ConnectorData,
 		&r.Token, &r.CreatedAt, &r.LastUsed,
 	)
 	if err != nil {
@@ -648,13 +647,13 @@ func scanPassword(s scanner) (p storage.Password, err error) {
 func (c *conn) CreateOfflineSessions(s storage.OfflineSessions) error {
 	_, err := c.Exec(`
 		insert into offline_session (
-			user_id, conn_id, refresh
+			user_id, refresh
 		)
 		values (
-			$1, $2, $3
+			$1, $2
 		);
 	`,
-		s.UserID, s.ConnID, encoder(s.Refresh),
+		s.UserID, encoder(s.Refresh),
 	)
 	if err != nil {
 		if c.alreadyExistsCheck(err) {
@@ -665,9 +664,9 @@ func (c *conn) CreateOfflineSessions(s storage.OfflineSessions) error {
 	return nil
 }
 
-func (c *conn) UpdateOfflineSessions(userID string, connID string, updater func(s storage.OfflineSessions) (storage.OfflineSessions, error)) error {
+func (c *conn) UpdateOfflineSessions(userID string, updater func(s storage.OfflineSessions) (storage.OfflineSessions, error)) error {
 	return c.ExecTx(func(tx *trans) error {
-		s, err := getOfflineSessions(tx, userID, connID)
+		s, err := getOfflineSessions(tx, userID)
 		if err != nil {
 			return err
 		}
@@ -680,9 +679,9 @@ func (c *conn) UpdateOfflineSessions(userID string, connID string, updater func(
 			update offline_session
 			set
 				refresh = $1
-			where user_id = $2 AND conn_id = $3;
+			where user_id = $2;
 		`,
-			encoder(newSession.Refresh), s.UserID, s.ConnID,
+			encoder(newSession.Refresh), s.UserID,
 		)
 		if err != nil {
 			return fmt.Errorf("update offline session: %v", err)
@@ -691,22 +690,22 @@ func (c *conn) UpdateOfflineSessions(userID string, connID string, updater func(
 	})
 }
 
-func (c *conn) GetOfflineSessions(userID string, connID string) (storage.OfflineSessions, error) {
-	return getOfflineSessions(c, userID, connID)
+func (c *conn) GetOfflineSessions(userID string) (storage.OfflineSessions, error) {
+	return getOfflineSessions(c, userID)
 }
 
-func getOfflineSessions(q querier, userID string, connID string) (storage.OfflineSessions, error) {
+func getOfflineSessions(q querier, userID string) (storage.OfflineSessions, error) {
 	return scanOfflineSessions(q.QueryRow(`
 		select
 			user_id, conn_id, refresh
 		from offline_session
-		where user_id = $1 AND conn_id = $2;
-		`, userID, connID))
+		where user_id = $1
+		`, userID))
 }
 
 func scanOfflineSessions(s scanner) (o storage.OfflineSessions, err error) {
 	err = s.Scan(
-		&o.UserID, &o.ConnID, decoder(&o.Refresh),
+		&o.UserID, decoder(&o.Refresh),
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -824,10 +823,10 @@ func (c *conn) DeletePassword(email string) error {
 }
 func (c *conn) DeleteConnector(id string) error { return c.delete("connector", "id", id) }
 
-func (c *conn) DeleteOfflineSessions(userID string, connID string) error {
-	result, err := c.Exec(`delete from offline_session where user_id = $1 AND conn_id = $2`, userID, connID)
+func (c *conn) DeleteOfflineSessions(userID string) error {
+	result, err := c.Exec(`delete from offline_session where user_id = $1`, userID)
 	if err != nil {
-		return fmt.Errorf("delete offline_session: user_id = %s, conn_id = %s", userID, connID)
+		return fmt.Errorf("delete offline_session: user_id = %s", userID)
 	}
 
 	// For now mandate that the driver implements RowsAffected. If we ever need to support
