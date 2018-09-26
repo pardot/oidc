@@ -39,16 +39,18 @@ var cmd = cobra.Command{
 
 var ( // flags
 	addr                     string
-	dcfg                     server.Config
+	scfg                     server.Config
 	sessionAuthenticationKey string
 	sessionEncryptionKey     string
+	dbURL                    string
 )
 
 func init() {
 	cmd.Flags().StringVar(&addr, "addr", "localhost:5556", "Address to listen on")
-	cmd.Flags().StringVar(&dcfg.Issuer, "issuer", "http://localhost:5556", "Issuer URL for OIDC provider")
+	cmd.Flags().StringVar(&scfg.Issuer, "issuer", "http://localhost:5556", "Issuer URL for OIDC provider")
 	cmd.Flags().StringVar(&sessionAuthenticationKey, "session-auth-key", mustGenRandB64(64), "Session authentication key, 64-byte, base64-encoded")
 	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
+	cmd.Flags().StringVar(&dbURL, "database", "postgres:///deci", "URL to postgres database for persistence")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -68,27 +70,19 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session-encrypt-key must be %d bytes of random data", sessionEncryptionKeyBytesLength)
 	}
 
-	scfg := &server.Config{
-		Logger:             logger,
-		PrometheusRegistry: prometheus.NewRegistry(), // TODO: Actually register stuff to this
-	}
+	// Configure OIDC sderver
 
-	psql := &sql.Postgres{
-		Database: "deci",
-		User:     "deci",
-		Host:     "localhost",
-		SSL: sql.PostgresSSL{
-			Mode: "disable",
-		},
-	}
+	scfg.Logger = logger
+	scfg.PrometheusRegistry = prometheus.NewRegistry() // TODO: Actually register stuff to this
 
-	storage, err := psql.Open(logger)
+	store, err := sql.PostgresForURL(logger, dbURL)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to configure storage")
 	}
-	scfg.Storage = storage
 
-	server, err := server.NewServer(context.Background(), scfg)
+	scfg.Storage = store
+
+	server, err := server.NewServer(context.Background(), &scfg)
 	if err != nil {
 		return err
 	}
