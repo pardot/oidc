@@ -1,7 +1,6 @@
 package deci
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
@@ -45,42 +44,37 @@ type App struct {
 	sstore    sessions.Store
 	storage   storage.Storage
 	connector connector.CallbackConnector
-	dserver   *server.Server
+	server    *server.Server
 
 	router *mux.Router
 }
 
-func NewApp(logger logrus.FieldLogger, dcfg *server.Config, sstore sessions.Store) (*App, error) {
+func NewApp(logger logrus.FieldLogger, server *server.Server, sstore sessions.Store) (*App, error) {
 	a := &App{
 		logger: logger,
+		server: server,
 		sstore: sstore,
 	}
 
-	router := mux.NewRouter()
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
-	router.HandleFunc("/", a.handleIndex)
+	a.router = mux.NewRouter()
+	a.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+	a.router.HandleFunc("/", a.handleIndex)
 
 	// Not trying to be RESTful here, as I think an RPC interface will be better at some point anyway
 	// See: <https://github.com/heroku/deci/issues/22>
-	router.HandleFunc("/CreateEnrollOptions", a.handleCreateEnrollOptions).Methods("POST")
-	router.HandleFunc("/EnrollPublicKey", a.handleEnrollPublicKey).Methods("POST")
-	router.HandleFunc("/CreateAuthenticateOptions", a.handleCreateAuthenticateOptions).Methods("POST")
-	router.HandleFunc("/AuthenticatePublicKey", a.handleAuthenticatePublicKey).Methods("POST")
+	a.router.HandleFunc("/CreateEnrollOptions", a.handleCreateEnrollOptions).Methods("POST")
+	a.router.HandleFunc("/EnrollPublicKey", a.handleEnrollPublicKey).Methods("POST")
+	a.router.HandleFunc("/CreateAuthenticateOptions", a.handleCreateAuthenticateOptions).Methods("POST")
+	a.router.HandleFunc("/AuthenticatePublicKey", a.handleAuthenticatePublicKey).Methods("POST")
+
+	if err := server.Mount(a.router); err != nil {
+		return nil, errors.Wrap(err, "Error mounting OIDC Server")
+	}
+	a.server = server
 
 	gob.Register(&webauthn.PublicKeyCredentialCreationOptions{})
 	gob.Register(&webauthn.PublicKeyCredentialRequestOptions{})
 
-	dserver, err := server.NewServer(context.Background(), dcfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error creating OIDC server")
-	}
-
-	if err := dserver.Mount(router); err != nil {
-		return nil, errors.Wrap(err, "Error mounting OIDC Server")
-	}
-
-	a.router = router
-	a.dserver = dserver
 	return a, nil
 }
 
@@ -350,7 +344,7 @@ func (a *App) handleEnrollCallback(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	redir, err := a.dserver.FinalizeLogin(id, authReq)
+	redir, err := a.server.FinalizeLogin(id, authReq)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -401,7 +395,7 @@ func (a *App) handleKeyLogin(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	redir, err := a.dserver.FinalizeLogin(newID, authReq)
+	redir, err := a.server.FinalizeLogin(newID, authReq)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
