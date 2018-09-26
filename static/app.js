@@ -19,53 +19,62 @@ function enrollPublicKey(publicKeyCredential) {
   req.send(jsonifyPublicKey(publicKeyCredential));
 }
 
-function jsonifyPublicKey(publicKeyCredential) {
-  return JSON.stringify({
-    id: publicKeyCredential.id,
-    rawId: abtob(publicKeyCredential.rawId),
-    type: publicKeyCredential.type,
-    response: {
-      clientDataJSON: abtob(publicKeyCredential.response.clientDataJSON),
-      attestationObject: abtob(publicKeyCredential.response.attestationObject)
+function authenticatePublicKey(publicKeyCredential) {
+  var req = new XMLHttpRequest();
+  req.open("POST", "/AuthenticatePublicKey", true);
+  req.setRequestHeader("content-type", "application/json");
+  req.responseType = "json"
+  req.onload = function() {
+    if (req.status == 201) {
+      console.log("Successful");
+    } else {
+      // TODO: Do something more user-friendly here
+      console.log("Credential authenticate failed");
     }
-  })
+  };
+  req.onerror = function() {
+    // TODO: Do something more user-friendly here
+    console.log("Credential authenticate failed");
+  };
+
+  req.send(jsonifyPublicKey(publicKeyCredential));
 }
 
-function attemptGetCredential() {
+function attemptAuthentication() {
   var req = new XMLHttpRequest();
-  req.open("POST", "/CreateCredentialRequestOptions", true);
+  req.open("POST", "/CreateAuthenticateOptions", true);
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
     if (req.status == 201) {
       var publicKeyCredentialRequestOptions = req.response;
-      publicKeyCredentialRequestOptions.challenge = Uint8Array.from(atob(publicKeyCredentialRequestOptions.challenge), c => c.charCodeAt(0));
+      publicKeyCredentialRequestOptions.challenge = ato8a(publicKeyCredentialRequestOptions.challenge);
 
       navigator.credentials.get({
         publicKey: publicKeyCredentialRequestOptions
       }).then(function(publicKeyCredential) {
-        console.log(publicKeyCredential);
+        authenticatePublicKey(publicKeyCredential);
       }).catch(function(err) {
         // TODO
-        console.log("Credential get failed");
+        console.log("Getting credentials failed");
         console.log(err);
       });
     } else {
       // TODO: Do something more user-friendly here
-      console.log("Credential get failed");
+      console.log("Create authenticate options request returned non-201");
     }
   };
   req.onerror = function() {
     // TODO: Do something more user-friendly here
-    console.log("Credential get failed");
+    console.log("Create authenticate options request failed");
   };
 
   req.send(JSON.stringify({}));
 }
 
-function attemptRegistration() {
+function attemptEnrollment() {
   var req = new XMLHttpRequest();
-  req.open("POST", "/CreateCredentialCreationOptions", true);
+  req.open("POST", "/CreateEnrollOptions", true);
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
@@ -78,7 +87,6 @@ function attemptRegistration() {
         publicKey: publicKeyCredentialCreationOptions
       }).then(function(publicKeyCredential) {
         enrollPublicKey(publicKeyCredential)
-        console.log(publicKeyCredential);
       }).catch(function(err) {
         // TODO
         console.log("Credential creation failed");
@@ -97,14 +105,29 @@ function attemptRegistration() {
   req.send(JSON.stringify({}));
 }
 
+function jsonifyPublicKey(publicKeyCredential) {
+  return JSON.stringify({
+    id: publicKeyCredential.id,
+    rawId: abtoa(publicKeyCredential.rawId),
+    type: publicKeyCredential.type,
+    response: {
+      clientDataJSON: abtoa(publicKeyCredential.response.clientDataJSON),
+      attestationObject: abtoa(publicKeyCredential.response.attestationObject),
+      authenticatorData: abtoa(publicKeyCredential.response.authenticatorData),
+      signature: abtoa(publicKeyCredential.response.signature),
+      userHandle: abtoa(publicKeyCredential.response.userHandle)
+    }
+  })
+}
+
 function initiateAuthn(e) {
   e.preventDefault();
-  attemptGetCredential()
+  attemptAuthentication()
 }
 
 function initiateRegistration(e) {
   e.preventDefault();
-  attemptRegistration();
+  attemptEnrollment();
 }
 
 ready(function() {

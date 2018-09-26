@@ -62,7 +62,7 @@ func run() error {
 
 	session := sessions.NewCookieStore(sessionAuthenticationKey, sessionEncryptionKey)
 	// TODO - load config from somewhere
-	a, err := deci.NewApp(logger, &deci.Config{}, &server.Config{}, session)
+	a, err := deci.NewApp(logger, &server.Config{}, session)
 	if err != nil {
 		return errors.Wrap(err, "Error creating app")
 	}

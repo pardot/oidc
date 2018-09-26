@@ -7,7 +7,7 @@ function ready(fn) {
 }
 
 // ArrayBuffer to Base64
-function abtob(buffer) {
+function abtoa(buffer) {
   if (!buffer) {
     return null;
   }
@@ -19,4 +19,13 @@ function abtob(buffer) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+// Base64 to Uint8Array
+function ato8a(encodedData) {
+  if (!encodedData) {
+    return null;
+  }
+
+  return Uint8Array.from(atob(encodedData), function(c) { return c.charCodeAt(0); });
 }
