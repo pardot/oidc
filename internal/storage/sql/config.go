@@ -104,3 +104,26 @@ func (p *Postgres) open(logger logrus.FieldLogger) (*conn, error) {
 	}
 	return c, nil
 }
+
+// PostgresForURL will configure a postgres-backed storage.Storage with a
+// database URL
+func PostgresForURL(logger logrus.FieldLogger, url string) (storage.Storage, error) {
+	db, err := sql.Open("postgres", url)
+	if err != nil {
+		return nil, err
+	}
+
+	errCheck := func(err error) bool {
+		sqlErr, ok := err.(*pq.Error)
+		if !ok {
+			return false
+		}
+		return sqlErr.Code == pgErrUniqueViolation
+	}
+
+	c := &conn{db, flavorPostgres, logger, errCheck}
+	if _, err := c.migrate(); err != nil {
+		return nil, fmt.Errorf("failed to perform migrations: %v", err)
+	}
+	return c, nil
+}
