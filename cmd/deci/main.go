@@ -68,6 +68,7 @@ func init() {
 	cmd.Flags().StringVar(&sessionEncryptionKey, "session-encrypt-key", mustGenRandB64(32), "Session encryption key, 32-byte, base64-encoded")
 	cmd.Flags().StringVar(&dbURL, "database", defaultDBUrl(), "URL to postgres database for persistence")
 	cmd.Flags().StringVar(&staticClientPath, "static-clients", "config/static-clients.yaml", "File containing static client mappings")
+	cmd.Flags().StringVar(&conncfg.GroupFile, "group-mappings", "config/local-mappings.yaml", "File mapping salesforce IDs to groups")
 }
 
 func run(cmd *cobra.Command, args []string) error {
