@@ -1,8 +1,16 @@
 {{ define "content" }}
-<!-- Immediately kick off enrollment, since the user has previously indicated this is what they want -->
 <script type="text/javascript">
   ready(function() {
     attemptEnrollment();
   });
 </script>
+
+<div class="mui-row">
+  <div class="mui-col-md-4 mui-col-md-offset-4">
+    <div class="mui-panel mui--text-center">
+      <p>Enrolling...</p>
+      <p><img src="/static/spinner256.gif"/></p>
+    </div>
+  </div>
+</div>
 {{ end }}
