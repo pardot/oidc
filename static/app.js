@@ -40,6 +40,7 @@ function enrollPublicKey(publicKeyCredential) {
   req.onload = function() {
     if (req.status == 201) {
       console.log("Successful");
+      window.location.href = req.response.redirectURL;
     } else {
       // TODO: Do something more user-friendly here
       console.log("Credential enroll failed");
@@ -55,7 +56,7 @@ function enrollPublicKey(publicKeyCredential) {
 
 function attemptAuthentication() {
   var req = new XMLHttpRequest();
-  req.open("POST", "/CreateAuthenticateOptions", true);
+  req.open("POST", "/CreateAuthenticationOptions", true);
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
@@ -92,8 +93,9 @@ function authenticatePublicKey(publicKeyCredential) {
   req.setRequestHeader("content-type", "application/json");
   req.responseType = "json"
   req.onload = function() {
-    if (req.status == 201) {
+    if (req.status == 200) {
       console.log("Successful");
+      window.location.href = req.response.redirectURL;
     } else {
       // TODO: Do something more user-friendly here
       console.log("Credential authenticate failed");

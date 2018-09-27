@@ -2,8 +2,12 @@ package webauthn
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
+	"math/big"
 
 	"github.com/pkg/errors"
 	"github.com/ugorji/go/codec"
@@ -29,19 +33,35 @@ const (
 	PublicKeyCredentialTypePublicKey PublicKeyCredentialType = "public-key"
 )
 
-type COSEAlgorithmIdentifier int8
+type COSEAlgorithm int8
 
 // See: <https://www.iana.org/assignments/cose/cose.xhtml#algorithms>
 const (
-	COSEAlgorithmES256 COSEAlgorithmIdentifier = -7
-	COSEAlgorithmES384 COSEAlgorithmIdentifier = -35
-	COSEAlgorithmES512 COSEAlgorithmIdentifier = -36
+	COSEAlgorithmES256 COSEAlgorithm = -7
+	COSEAlgorithmES384 COSEAlgorithm = -35
+	COSEAlgorithmES512 COSEAlgorithm = -36
 
 	// TODO: Support PS/RS algorithms (note: they don't encode signatures with ASN.1)
-	// COSEAlgorithmPS256 COSEAlgorithmIdentifier = -37
-	// COSEAlgorithmPS384 COSEAlgorithmIdentifier = -38
-	// COSEAlgorithmPS512 COSEAlgorithmIdentifier = -39
+	// COSEAlgorithmPS256 COSEAlgorithm = -37
+	// COSEAlgorithmPS384 COSEAlgorithm = -38
+	// COSEAlgorithmPS512 COSEAlgorithm = -39
 	// TODO: RS{256,384,512}? They aren't standard yet
+)
+
+type COSEKeyType int8
+
+// See: <https://www.iana.org/assignments/cose/cose.xhtml#key-type>
+const (
+	COSEKeyTypeEC2 COSEKeyType = 2 // Elliptic Curve
+)
+
+type COSECurve int8
+
+// See: <https://www.iana.org/assignments/cose/cose.xhtml#elliptic-curves>
+const (
+	COSECurveTypeP256 COSECurve = 1
+	COSECurveTypeP384 COSECurve = 2
+	COSECurveTypeP521 COSECurve = 3
 )
 
 type AttestationConveyancePreference string
@@ -89,7 +109,7 @@ type PublicKeyCredentialUserEntity struct {
 // See: <https://w3c.github.io/webauthn/#dictdef-publickeycredentialparameters>
 type PublicKeyCredentialParameters struct {
 	Type      PublicKeyCredentialType `json:"type"`
-	Algorithm COSEAlgorithmIdentifier `json:"alg"`
+	Algorithm COSEAlgorithm           `json:"alg"`
 }
 
 // See: <https://w3c.github.io/webauthn/#dictdef-authenticatorselectioncriteria>
@@ -161,6 +181,14 @@ type AuthenticatorData struct {
 	CredentialID        []byte         // Variable length
 	CredentialPublicKey *COSEPublicKey // Variable length
 	// Extensions are left unparsed for now
+
+	raw []byte
+}
+
+// Raw returns the unmodified, binary representation of AuthenticatorData. Raw
+// will only be available if AuthenticatorData was decoded from binary data.
+func (d *AuthenticatorData) Raw() []byte {
+	return d.raw
 }
 
 func (d *AuthenticatorData) UnmarshalJSON(data []byte) error {
@@ -173,7 +201,8 @@ func (d *AuthenticatorData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	return d.UnmarshalBinary(b[:n])
+	d.raw = b[:n]
+	return d.UnmarshalBinary(d.raw)
 }
 
 func (d *AuthenticatorData) MarshalBinary() ([]byte, error) {
@@ -233,12 +262,50 @@ func (d *AuthenticatorData) HasExtensions() bool {
 }
 
 type COSEPublicKey struct {
-	_struct   bool                    `codec:",int"`
-	Algorithm COSEAlgorithmIdentifier `codec:"3" json:"algorithm"`
-	KeyType   int8                    `codec:"1" json:"key_type"`
-	Curve     int8                    `gorm:"not null" codec:"-1" json:"curve"`
-	X         []byte                  `gorm:"not null" codec:"-2" json:"x"`
-	Y         []byte                  `gorm:"not null" codec:"-3" json:"y"`
+	_struct   bool          `codec:",int"`
+	Algorithm COSEAlgorithm `codec:"3" json:"algorithm"`
+	KeyType   COSEKeyType   `codec:"1" json:"key_type"`
+	Curve     COSECurve     `gorm:"not null" codec:"-1" json:"curve"`
+	X         []byte        `gorm:"not null" codec:"-2" json:"x"`
+	Y         []byte        `gorm:"not null" codec:"-3" json:"y"`
+}
+
+func (k *COSEPublicKey) ECDSAKey() (*ecdsa.PublicKey, error) {
+	if k.KeyType != COSEKeyTypeEC2 {
+		return nil, errors.New("not an elliptic curve key")
+	}
+
+	var curve elliptic.Curve
+	switch k.Curve {
+	case COSECurveTypeP256:
+		curve = elliptic.P256()
+	case COSECurveTypeP384:
+		curve = elliptic.P384()
+	case COSECurveTypeP521:
+		curve = elliptic.P521()
+	default:
+		return nil, fmt.Errorf("unknown curve type: %v", k.Curve)
+	}
+	p := curve.Params().P
+
+	c := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     new(big.Int).SetBytes(k.X),
+		Y:     new(big.Int).SetBytes(k.Y),
+	}
+
+	// Perform the same validations that curve.Unmarshal does
+	if c.X.Cmp(p) >= 0 || c.Y.Cmp(p) >= 0 || !curve.IsOnCurve(c.X, c.Y) {
+		return nil, errors.New("invalid key: X and Y are not on curve")
+	}
+
+	return c, nil
+}
+
+// See: <https://tools.ietf.org/html/rfc3279#section-2.2.3>
+type ECDSASignatureValue struct {
+	R *big.Int
+	S *big.Int
 }
 
 type Base64URLEncodedBytes []byte
