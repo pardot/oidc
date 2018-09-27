@@ -2,7 +2,9 @@ package deci
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -24,11 +26,11 @@ const (
 	sessionAuthRequestIDKey = "auth-req-id"
 	sessionApprovalURLKey   = "approval-url"
 
-	pathStartEnrollment           = "/StartEnrollment"
-	pathCreateEnrollmentOptions   = "/CreateEnrollmentOptions"
-	pathEnrollPublicKey           = "/EnrollPublicKey"
-	pathCreateAuthenticateOptions = "/CreateAuthenticateOptions"
-	pathAuthenticatePublicKey     = "/AuthenticatePublicKey"
+	pathStartEnrollment             = "/StartEnrollment"
+	pathCreateEnrollmentOptions     = "/CreateEnrollmentOptions"
+	pathEnrollPublicKey             = "/EnrollPublicKey"
+	pathCreateAuthenticationOptions = "/CreateAuthenticationOptions"
+	pathAuthenticatePublicKey       = "/AuthenticatePublicKey"
 )
 
 var (
@@ -79,7 +81,7 @@ func NewApp(logger logrus.FieldLogger, connector connector.CallbackConnector, st
 	a.router.HandleFunc(pathStartEnrollment, a.handleStartEnrollment).Methods("GET")
 	a.router.HandleFunc(pathCreateEnrollmentOptions, a.handleCreateEnrollmentOptions).Methods("POST")
 	a.router.HandleFunc(pathEnrollPublicKey, a.handleEnrollPublicKey).Methods("POST")
-	a.router.HandleFunc(pathCreateAuthenticateOptions, a.handleCreateAuthenticateOptions).Methods("POST")
+	a.router.HandleFunc(pathCreateAuthenticationOptions, a.handleCreateAuthenticationOptions).Methods("POST")
 	a.router.HandleFunc(pathAuthenticatePublicKey, a.handleAuthenticatePublicKey).Methods("POST")
 
 	// OIDC handler. This is called when clients initialize the flow
@@ -103,9 +105,9 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	a.renderWithDefaultLayout(w, http.StatusOK, "./templates/index.html.tmpl", nil)
 }
 
-// handleCreateAuthenticateOptions kicks off the 'authentication ceremony'
+// handleCreateAuthenticationOptions kicks off the 'authentication ceremony'
 // (request credentials from an already-enrolled key)
-func (a *App) handleCreateAuthenticateOptions(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateAuthenticationOptions(w http.ResponseWriter, r *http.Request) {
 	session, err := a.session(r)
 	if err != nil {
 		a.logger.WithError(err).Error()
@@ -129,11 +131,11 @@ func (a *App) handleCreateAuthenticateOptions(w http.ResponseWriter, r *http.Req
 
 	opts := &webauthn.PublicKeyCredentialRequestOptions{
 		Challenge:        challenge,
-		UserVerification: webauthn.UserVerificationPreferred, // TODO: Make Required
+		UserVerification: webauthn.UserVerificationRequired,
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(opts); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -183,7 +185,7 @@ func (a *App) handleCreateEnrollmentOptions(w http.ResponseWriter, r *http.Reque
 			Name: r.Host,
 		},
 		User: webauthn.PublicKeyCredentialUserEntity{
-			Id:          []byte(authReq.Claims.UserID),
+			Id:          []byte(authReq.Claims.UserID), // TODO: This should not be personally identifiable, per the spec. We could hash+salt this?
 			Name:        authReq.Claims.Email,
 			DisplayName: authReq.Claims.Username,
 		},
@@ -191,13 +193,13 @@ func (a *App) handleCreateEnrollmentOptions(w http.ResponseWriter, r *http.Reque
 		PubKeyCredParams: acceptablePubKeyCredParams,
 		AuthenticatorSelection: webauthn.AuthenticatorSelectionCriteria{
 			RequireResidentKey: true,
-			UserVerification:   webauthn.UserVerificationPreferred, // TODO: Make required
+			UserVerification:   webauthn.UserVerificationRequired,
 		},
 		Attestation: webauthn.AttestationConveyancePreferenceNone,
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(opts); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -273,6 +275,8 @@ func (a *App) handleEnrollPublicKey(w http.ResponseWriter, r *http.Request) {
 		RedirectURL: a.server.ApprovalURL(reqID),
 	}
 
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(&resp); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -288,6 +292,25 @@ func (a *App) handleAuthenticatePublicKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	reqID, ok := session.Values[sessionAuthRequestIDKey].(string)
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	authReq, err := a.storage.GetAuthRequest(reqID)
+	if err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	challenge, ok := session.Values[sessionChallengeKey].([]byte)
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 	publicKeyCredential := new(webauthn.PublicKeyCredential)
 	if err := json.NewDecoder(r.Body).Decode(publicKeyCredential); err != nil {
 		a.logger.WithError(err).Error("failed to decode PublicKeyCredential from request body")
@@ -295,20 +318,73 @@ func (a *App) handleAuthenticatePublicKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	a.logger.Infof("%#v", publicKeyCredential.Response.AuthenticatorData)
-	// TODO
-	// delete(session.Values, sessionChallgenKey)
+	publicKey, identity, err := a.storage.GetWebauthAssociation(publicKeyCredential.RawID)
+	if err != nil {
+		a.logger.WithError(err).Error("failed to fetch webauthn association")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 
+	if err := a.validateAuthentication(challenge, &publicKey, nil, publicKeyCredential); err != nil {
+		a.logger.WithError(err).Error("authentication failed")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Trigger a refresh to make sure the user is active, and fetch their latest
+	// identity
+	// TODO - break glass goes here. What do we do if ID provider down vs. reject?
+	rc, ok := a.connector.(connector.RefreshConnector)
+	if !ok {
+		// TODO - invalidate storage record, this key is unknown
+		// TODO - tell key to gtfo?
+		a.logger.Error("connector is not a refresh connector")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	newIdentity, err := rc.Refresh(r.Context(), connector.Scopes{}, identity)
+	if err != nil {
+		a.logger.WithError(err).Error("failed to issue new identity")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	err = a.storage.UpsertWebauthAssociation(
+		publicKeyCredential.RawID,
+		int(publicKeyCredential.Response.AuthenticatorData.Counter),
+		publicKey,
+		newIdentity,
+	)
+	if err != nil {
+		a.logger.WithError(err).Error("upserting webauthn association failed")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	delete(session.Values, sessionChallengeKey)
 	if err := session.Save(r, w); err != nil {
 		a.logger.WithError(err).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	// TODO: Validate challenge and other options
+	redirectURL, err := a.server.FinalizeLogin(newIdentity, authReq)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
-	w.WriteHeader(http.StatusCreated)
+	resp := &redirectResponse{
+		RedirectURL: redirectURL,
+	}
+
 	w.Header().Set("content-type", "application/json")
+	if err := json.NewEncoder(w).Encode(&resp); err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
 func (a *App) renderWithDefaultLayout(w http.ResponseWriter, code int, filename string, data interface{}) {
@@ -436,58 +512,17 @@ func (a *App) handleStartEnrollmentCallback(w http.ResponseWriter, r *http.Reque
 
 // handleKeyLogin is called when we trigger auth from a known key
 func (a *App) handleKeyLogin(w http.ResponseWriter, r *http.Request) {
-	// Fetch the auth request ID from the session
-	sess, _ := a.session(r)
-	reqID, ok := sess.Values[sessionAuthRequestIDKey]
-	if !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// fetch the refresh token for this key
-	// TODO
-	// keyData := a.storage.GetAuthKey(keyPubID)
-	identity := connector.Identity{UserID: "keydata.Identity"}
-
-	// Trigger a refresh to make sure the user is active, and fetch their latest
-	// identity
-	// TODO - break glass goes here. What do we do if ID provider down vs. reject?
-	rc, ok := a.connector.(connector.RefreshConnector)
-	if !ok {
-		// TODO - invalidate storage record, this key is unknown
-		// TODO - tell key to gtfo?
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	newID, err := rc.Refresh(r.Context(), connector.Scopes{}, identity)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	// Update the key association with the latest ID
-	// TODO
-	// a.storage.UpdateAuthKey(keyPubID, id)
-
-	// This is the final step. Fetch the request, then constuct a finalize
-	// redirect URL with the identity.
-	authReq, err := a.storage.GetAuthRequest(reqID.(string))
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	redir, err := a.server.FinalizeLogin(newID, authReq)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
 }
 
-// https://w3c.github.io/webauthn/#registering-a-new-credential
+// validateEnrollment validates that an enrollment request is valid. It is up
+// to the calling code to authenticate the user by some other means initially,
+// and to save the resulting credential in a data store.
+//
+// See: <https://w3c.github.io/webauthn/#registering-a-new-credential>
 func (a *App) validateEnrollment(challenge []byte, publicKeyCredential *webauthn.PublicKeyCredential) error {
-	if publicKeyCredential.Response.AttestationObject == nil {
+	if len(publicKeyCredential.Response.ClientDataJSON) == 0 {
+		return errors.New("missing clientDataJSON")
+	} else if publicKeyCredential.Response.AttestationObject == nil {
 		return errors.New("missing attestation object")
 	} else if len(publicKeyCredential.Response.AttestationObject.AuthenticatorData.CredentialID) == 0 {
 		return errors.New("missing credential ID")
@@ -549,10 +584,9 @@ func (a *App) validateEnrollment(challenge []byte, publicKeyCredential *webauthn
 
 	// 11. If user verification is required for this registration, verify that
 	// the User Verified bit of the flags in authData is set.
-	// TODO: Uncomment when we're requiring user verification
-	// if !publicKeyCredential.Response.AttestationObject.AuthenticatorData.IsUserVerified() {
-	// 	return errors.New("user not verified")
-	// }
+	if !publicKeyCredential.Response.AttestationObject.AuthenticatorData.IsUserVerified() {
+		return errors.New("user not verified")
+	}
 
 	// 12. Verify that the values of the client extension outputs in
 	// clientExtensionResults and the authenticator extension outputs in the
@@ -590,5 +624,131 @@ func (a *App) validateEnrollment(challenge []byte, publicKeyCredential *webauthn
 	// with the credentialId and credentialPublicKey in the
 	// attestedCredentialData in authData, as appropriate for the Relying Party's
 	// system.
+	return nil
+}
+
+// validateAuthentication validates that an authentication request is valid.
+// The challenge and publicKey should have been loaded from a data store, saved
+// when the user previously enrolled the key.
+//
+// See: <https://w3c.github.io/webauthn/#verifying-assertion>
+func (a *App) validateAuthentication(challenge []byte, publicKey *webauthn.COSEPublicKey, userHandle []byte, publicKeyCredential *webauthn.PublicKeyCredential) error {
+	if len(publicKeyCredential.Response.ClientDataJSON) == 0 {
+		return errors.New("missing clientDataJSON")
+	} else if publicKeyCredential.Response.AuthenticatorData == nil {
+		return errors.New("missing authenticator data")
+	} else if len(publicKeyCredential.Response.Signature) == 0 {
+		return errors.New("missing signature")
+	}
+
+	// 1. If the allowCredentials option was given when this authentication
+	// ceremony was initiated, verify that credential.id identifies one of the
+	// public key credentials that were listed in allowCredentials.
+	// NOTE: The publicKey has already been loaded by the caller
+
+	// 2. If credential.response.userHandle is present, verify that the user
+	// identified by this value is the owner of the public key credential
+	// identified by credential.id.
+	if len(publicKeyCredential.Response.UserHandle) > 0 && len(userHandle) > 0 && !bytes.Equal(publicKeyCredential.Response.UserHandle, userHandle) {
+		return errors.New("user handle does not match")
+	}
+
+	// 3. Using credential's id attribute (or the corresponding rawId, if
+	// base64url encoding is inappropriate for your use case), look up the
+	// corresponding credential public key.
+	// NOTE: The publicKey has already been loaded by the caller
+
+	// 4. Let cData, authData and sig denote the value of credential’s response's
+	// clientDataJSON, authenticatorData, and signature respectively.
+	// 5. Let JSONtext be the result of running UTF-8 decode on the value of
+	// cData.
+	clientDataJSON := publicKeyCredential.Response.ClientDataJSON
+
+	// 6. Let C, the client data claimed as used for the signature, be the result
+	// of running an implementation-specific JSON parser on JSONtext.
+	var clientData webauthn.CollectedClientData
+	if err := json.NewDecoder(bytes.NewReader(clientDataJSON)).Decode(&clientData); err != nil {
+		return errors.Wrap(err, "failed to decode clientDataJSON")
+	}
+
+	// 7. Verify that the value of C.type is the string webauthn.get.
+	if clientData.Type != webauthn.ClientDataTypeGet {
+		return fmt.Errorf("clientData.Type was not %s", webauthn.ClientDataTypeGet)
+	}
+
+	// 8. Verify that the value of C.challenge matches the challenge that was
+	// sent to the authenticator in the PublicKeyCredentialRequestOptions passed
+	// to the get() call.
+	if len(clientData.Challenge) == 0 || !bytes.Equal(clientData.Challenge, challenge) {
+		return errors.New("challenge did not match")
+	}
+
+	// 9. Verify that the value of C.origin matches the Relying Party's origin.
+	// TODO: We have let the browser auto-generate rpID now. Is it necessary to
+	// validate it server-side?
+
+	// 10. Verify that the value of C.tokenBinding.status matches the state of
+	// Token Binding for the TLS connection over which the attestation was
+	// obtained. If Token Binding was used on that TLS connection, also verify
+	// that C.tokenBinding.id matches the base64url encoding of the Token Binding
+	// ID for the connection.
+	// NOTE: We are not currently requesting token binding
+
+	// 11. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID
+	// expected by the Relying Party.
+	// TODO: We have let the browser auto-generate rpID now. Is it necessary to
+	// validate it server-side?
+
+	// 12. Verify that the User Present bit of the flags in authData is set.
+	if !publicKeyCredential.Response.AuthenticatorData.IsUserPresent() {
+		return errors.New("user not present")
+	}
+
+	// 13. If user verification is required for this assertion, verify that the
+	// User Verified bit of the flags in authData is set.
+	if !publicKeyCredential.Response.AuthenticatorData.IsUserVerified() {
+		return errors.New("user not verified")
+	}
+
+	// 14. Verify that the values of the client extension outputs in
+	// clientExtensionResults and the authenticator extension outputs in the
+	// extensions in authData are as expected
+	// NOTE: We currently do not request client extensions
+
+	// 15. Let hash be the result of computing a hash over the cData using SHA-256.
+	hash := sha256.Sum256(publicKeyCredential.Response.ClientDataJSON)
+
+	// 16. Using the credential public key looked up in step 3, verify that sig
+	// is a valid signature over the binary concatenation of authData and hash.
+	authData := publicKeyCredential.Response.AuthenticatorData.Raw()
+	if authData == nil {
+		return errors.New("missing raw auth data")
+	}
+
+	// TODO: Support RSA keys if we care?
+	key, err := publicKey.ECDSAKey()
+	if err != nil {
+		return err
+	}
+
+	var sigValue webauthn.ECDSASignatureValue
+	if _, err := asn1.Unmarshal(publicKeyCredential.Response.Signature, &sigValue); err != nil {
+		return errors.Wrap(err, "failed to decode signature value")
+	}
+
+	signedData := make([]byte, len(authData)+len(hash))
+	copy(signedData, authData)
+	copy(signedData[len(authData):], hash[:])
+	signedHash := sha256.Sum256(signedData)
+
+	if !ecdsa.Verify(key, signedHash[:], sigValue.R, sigValue.S) {
+		return errors.New("invalid signature")
+	}
+
+	// If the signature counter value authData.signCount is nonzero or the value
+	// stored in conjunction with credential’s id attribute is nonzero, then run
+	// the following sub-step:
+	// NOTE: It is the caller's responsibility to figure out what to do in this
+	// case
 	return nil
 }
