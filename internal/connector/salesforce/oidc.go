@@ -88,24 +88,21 @@ func (c *SalesforceConnector) HandleCallback(s connector.Scopes, r *http.Request
 		return identity, err
 	}
 
-	if s.OfflineAccess {
-		data := ConnectorData{
-			UserIDURL:    idToken.Subject,
-			AccessToken:  token.AccessToken,
-			RefreshToken: token.RefreshToken,
-			Expiry:       token.Expiry,
-		}
-		connData, err := json.Marshal(data)
-		if err != nil {
-			return identity, errors.Wrap(err, "Error serializing connector data")
-		}
-		identity.ConnectorData = connData
+	data := ConnectorData{
+		UserIDURL:    idToken.Subject,
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		Expiry:       token.Expiry,
 	}
+	connData, err := json.Marshal(data)
+	if err != nil {
+		return identity, errors.Wrap(err, "Error serializing connector data")
+	}
+	identity.ConnectorData = connData
 
 	return identity, nil
 }
 
-// Refresh is implemented for backwards compatibility, even though it's a no-op.
 func (c *SalesforceConnector) Refresh(ctx context.Context, s connector.Scopes, identity connector.Identity) (connector.Identity, error) {
 	if len(identity.ConnectorData) == 0 {
 		return identity, errors.New("no refresh information found")
@@ -263,7 +260,7 @@ func (c *SalesforceConnector) mapUser(identity connector.Identity, user *Salesfo
 	identity.UserID = user.UserID
 	identity.Username = user.DisplayName
 	identity.Email = user.Email
-	identity.EmailVerified = user.EmailVerified
+	identity.EmailVerified = true // TODO
 
 	return identity, nil
 }

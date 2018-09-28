@@ -124,7 +124,7 @@ const (
 	responseTypeIDToken = "id_token" // ID Token in url fragment
 )
 
-func parseScopes(scopes []string) connector.Scopes {
+func ParseScopes(scopes []string) connector.Scopes {
 	var s connector.Scopes
 	for _, scope := range scopes {
 		switch scope {

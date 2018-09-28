@@ -188,7 +188,7 @@ func (s *Server) CallbackHandler(wrap http.Handler) http.Handler {
 				s.renderError(w, http.StatusBadRequest, "Invalid request")
 				return
 			}
-			identity, err = conn.HandleCallback(parseScopes(authReq.Scopes), r)
+			identity, err = conn.HandleCallback(ParseScopes(authReq.Scopes), r)
 		default:
 			s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
 			return
@@ -671,7 +671,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 	// TODO(ericchiang): We may want a strict mode where connectors that don't implement
 	// this interface can't perform refreshing.
 	if refreshConn, ok := s.connector.(connector.RefreshConnector); ok {
-		newIdent, err := refreshConn.Refresh(r.Context(), parseScopes(scopes), ident)
+		newIdent, err := refreshConn.Refresh(r.Context(), ParseScopes(scopes), ident)
 		if err != nil {
 			s.logger.Errorf("failed to refresh identity: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
