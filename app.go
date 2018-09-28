@@ -343,7 +343,10 @@ func (a *App) handleAuthenticatePublicKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	newIdentity, err := rc.Refresh(r.Context(), connector.Scopes{}, identity)
+	scopes := server.ParseScopes(authReq.Scopes)
+	scopes.OfflineAccess = true
+
+	newIdentity, err := rc.Refresh(r.Context(), scopes, identity)
 	if err != nil {
 		a.logger.WithError(err).Error("failed to issue new identity")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -463,7 +466,17 @@ func (a *App) handleStartEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lurl, err := a.connector.LoginURL(connector.Scopes{}, a.server.CallbackURL(), reqID)
+	authReq, err := a.storage.GetAuthRequest(reqID)
+	if err != nil {
+		a.logger.WithError(err).Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	scopes := server.ParseScopes(authReq.Scopes)
+	scopes.OfflineAccess = true
+
+	lurl, err := a.connector.LoginURL(scopes, a.server.CallbackURL(), reqID)
 	if err != nil {
 		a.logger.WithError(err).Error("error creating upstream login URL")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -508,10 +521,6 @@ func (a *App) handleStartEnrollmentCallback(w http.ResponseWriter, r *http.Reque
 	}
 
 	a.renderWithDefaultLayout(w, http.StatusOK, "./templates/enrollment.html.tmpl", nil)
-}
-
-// handleKeyLogin is called when we trigger auth from a known key
-func (a *App) handleKeyLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // validateEnrollment validates that an enrollment request is valid. It is up
