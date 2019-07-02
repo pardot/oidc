@@ -1,2 +1,2 @@
-// package oidcserver implements an OpenID Connect server with federated logins.
+// Package oidcserver implements an OpenID Connect server with federated logins.
 package oidcserver

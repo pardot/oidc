@@ -414,7 +414,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		func() {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -491,14 +491,13 @@ func TestOAuth2CodeFlow(t *testing.T) {
 					t.Errorf("state did not match, want=%q got=%q", state, gotState)
 				}
 				w.WriteHeader(http.StatusOK)
-				return
 			}))
 
 			defer oauth2Client.Close()
 
 			// Regester the client above with dex.
 			redirectURL := oauth2Client.URL + "/callback"
-			client :=Client{
+			client := Client{
 				ID:           clientID,
 				Secret:       clientSecret,
 				RedirectURIs: []string{redirectURL},
@@ -536,7 +535,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			if respDump, err = httputil.DumpResponse(resp, true); err != nil {
 				t.Fatal(err)
 			}
-		}()
+		})
 	}
 }
 
@@ -596,7 +595,7 @@ func TestOAuth2ImplicitFlow(t *testing.T) {
 	defer oauth2Server.Close()
 
 	redirectURL := oauth2Server.URL + "/callback"
-	client :=Client{
+	client := Client{
 		ID:           "testclient",
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
@@ -606,7 +605,7 @@ func TestOAuth2ImplicitFlow(t *testing.T) {
 	}
 
 	idTokenVerifier := p.Verifier(&oidc.Config{
-		ClientID:   client.ID,
+		ClientID: client.ID,
 	})
 
 	oauth2Config = &oauth2.Config{
@@ -753,7 +752,7 @@ func TestCrossClientScopes(t *testing.T) {
 	defer oauth2Server.Close()
 
 	redirectURL := oauth2Server.URL + "/callback"
-	client :=Client{
+	client := Client{
 		ID:           testClientID,
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
@@ -762,7 +761,7 @@ func TestCrossClientScopes(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	peer :=Client{
+	peer := Client{
 		ID:           peerID,
 		Secret:       "foobar",
 		TrustedPeers: []string{"testclient"},
@@ -875,7 +874,7 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	defer oauth2Server.Close()
 
 	redirectURL := oauth2Server.URL + "/callback"
-	client :=Client{
+	client := Client{
 		ID:           testClientID,
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
@@ -884,7 +883,7 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	peer :=Client{
+	peer := Client{
 		ID:           peerID,
 		Secret:       "foobar",
 		TrustedPeers: []string{"testclient"},
@@ -928,12 +927,14 @@ func TestPasswordDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s.CreatePassword(Password{
+	if err := s.CreatePassword(Password{
 		Email:    "jane@example.com",
 		Username: "jane",
 		UserID:   "foobar",
 		Hash:     h,
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name         string
@@ -969,36 +970,37 @@ func TestPasswordDB(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		ident, valid, err := conn.Login(context.Background(), Scopes{}, tc.username, tc.password)
-		if err != nil {
-			if !tc.wantErr {
-				t.Errorf("%s: %v", tc.name, err)
+		t.Run(tc.name, func(t *testing.T) {
+			ident, valid, err := conn.Login(context.Background(), Scopes{}, tc.username, tc.password)
+			if err != nil {
+				if !tc.wantErr {
+					t.Errorf("%s: %v", tc.name, err)
+				}
+				return
 			}
-			continue
-		}
 
-		if tc.wantErr {
-			t.Errorf("%s: expected error", tc.name)
-			continue
-		}
-
-		if !valid {
-			if !tc.wantInvalid {
-				t.Errorf("%s: expected valid password", tc.name)
+			if tc.wantErr {
+				t.Errorf("%s: expected error", tc.name)
+				return
 			}
-			continue
-		}
 
-		if tc.wantInvalid {
-			t.Errorf("%s: expected invalid password", tc.name)
-			continue
-		}
+			if !valid {
+				if !tc.wantInvalid {
+					t.Errorf("%s: expected valid password", tc.name)
+				}
+				return
+			}
 
-		if diff := pretty.Compare(tc.wantIdentity, ident); diff != "" {
-			t.Errorf("%s: %s", tc.name, diff)
-		}
+			if tc.wantInvalid {
+				t.Errorf("%s: expected invalid password", tc.name)
+				return
+			}
+
+			if diff := pretty.Compare(tc.wantIdentity, ident); diff != "" {
+				t.Errorf("%s: %s", tc.name, diff)
+			}
+		})
 	}
-
 }
 
 func TestPasswordDBUsernamePrompt(t *testing.T) {
@@ -1037,10 +1039,12 @@ func TestKeyCacher(t *testing.T) {
 		},
 		{
 			before: func() {
-				s.UpdateKeys(func(old Keys) (Keys, error) {
+				if err := s.UpdateKeys(func(old Keys) (Keys, error) {
 					old.NextRotation = tNow.Add(time.Minute)
 					return old, nil
-				})
+				}); err != nil {
+					t.Fatal(err)
+				}
 			},
 			wantCallToStorage: true,
 		},
@@ -1057,10 +1061,12 @@ func TestKeyCacher(t *testing.T) {
 		{
 			before: func() {
 				tNow = tNow.Add(time.Hour)
-				s.UpdateKeys(func(old Keys) (Keys, error) {
+				if err := s.UpdateKeys(func(old Keys) (Keys, error) {
 					old.NextRotation = tNow.Add(time.Minute)
 					return old, nil
-				})
+				}); err != nil {
+					t.Fatal(err)
+				}
 			},
 			wantCallToStorage: true,
 		},
@@ -1073,12 +1079,16 @@ func TestKeyCacher(t *testing.T) {
 	gotCall := false
 	s = newKeyCacher(storageWithKeysTrigger{s, func() { gotCall = true }}, now)
 	for i, tc := range tests {
-		gotCall = false
-		tc.before()
-		s.GetKeys()
-		if gotCall != tc.wantCallToStorage {
-			t.Errorf("case %d: expected call to storage=%t got call to storage=%t", i, tc.wantCallToStorage, gotCall)
-		}
+		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
+			gotCall = false
+			tc.before()
+			if _, err := s.GetKeys(); err != nil {
+				t.Fatal(err)
+			}
+			if gotCall != tc.wantCallToStorage {
+				t.Errorf("case %d: expected call to storage=%t got call to storage=%t", i, tc.wantCallToStorage, gotCall)
+			}
+		})
 	}
 }
 
@@ -1143,13 +1153,12 @@ func TestRefreshTokenFlow(t *testing.T) {
 			t.Errorf("state did not match, want=%q got=%q", state, gotState)
 		}
 		w.WriteHeader(http.StatusOK)
-		return
 	}))
 	defer oauth2Client.server.Close()
 
 	// Register the client above with dex.
 	redirectURL := oauth2Client.server.URL + "/callback"
-	client :=Client{
+	client := Client{
 		ID:           "testclient",
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
@@ -1182,6 +1191,9 @@ func TestRefreshTokenFlow(t *testing.T) {
 
 	// try to refresh expired token with old refresh token.
 	newToken, err := oauth2Client.config.TokenSource(ctx, tok).Token()
+	if err == nil {
+		t.Errorf("Want: error when using expired refresh token, but none returned")
+	}
 	if newToken != nil {
 		t.Errorf("Token refreshed with invalid refresh token.")
 	}
@@ -1220,16 +1232,18 @@ func TestCheckCost(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if err := checkCost(tc.inputHash); err != nil {
-			if !tc.wantErr {
-				t.Errorf("%s: %s", tc.name, err)
+		t.Run(tc.name, func(t *testing.T) {
+			if err := checkCost(tc.inputHash); err != nil {
+				if !tc.wantErr {
+					t.Errorf("%s: %s", tc.name, err)
+				}
+				return
 			}
-			continue
-		}
 
-		if tc.wantErr {
-			t.Errorf("%s: expected err", tc.name)
-			continue
-		}
+			if tc.wantErr {
+				t.Errorf("%s: expected err", tc.name)
+				return
+			}
+		})
 	}
 }

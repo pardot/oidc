@@ -9,7 +9,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -100,8 +99,6 @@ func value(val, defaultValue time.Duration) time.Duration {
 type Server struct {
 	issuerURL url.URL
 
-	// mutex for the connectors map.
-	mu sync.Mutex
 	// Map of connector IDs to connectors.
 	connectors map[string]Connector
 
@@ -389,7 +386,6 @@ func (s *Server) startGarbageCollection(ctx context.Context, frequency time.Dura
 			}
 		}
 	}()
-	return
 }
 
 const (

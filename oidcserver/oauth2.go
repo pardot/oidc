@@ -83,10 +83,12 @@ func tokenErr(w http.ResponseWriter, typ, description string, statusCode int) er
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(statusCode)
-	w.Write(body)
-	return nil
+	_, err = w.Write(body)
+	return err
 }
 
+// these are standard constants, worth having here.
+// nolint:deadcode,varcheck,unused
 const (
 	errInvalidRequest          = "invalid_request"
 	errUnauthorizedClient      = "unauthorized_client"
@@ -264,9 +266,9 @@ type federatedIDClaims struct {
 	UserID      string `json:"user_id,omitempty"`
 }
 
- func (s *Server) newAccessToken(clientID string, claims Claims, scopes []string, nonce, connID string) (accessToken string, err error) {
- 	idToken, _, err := s.newIDToken(clientID, claims, scopes, nonce, NewID(), connID)
- 	return idToken, err
+func (s *Server) newAccessToken(clientID string, claims Claims, scopes []string, nonce, connID string) (accessToken string, err error) {
+	idToken, _, err := s.newIDToken(clientID, claims, scopes, nonce, NewID(), connID)
+	return idToken, err
 }
 
 func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, nonce, accessToken, connID string) (idToken string, expiry time.Time, err error) {

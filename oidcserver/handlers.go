@@ -43,8 +43,8 @@ func (s *Server) newHealthChecker(ctx context.Context) http.Handler {
 	return h
 }
 
-// healthChecker periodically performs health checks on server dependenices.
-// Currently, it only checks that the storage layer is avialable.
+// healthChecker periodically performs health checks on server dependencies.
+// Currently, it only checks that the storage layer is available.
 type healthChecker struct {
 	s *Server
 
@@ -142,7 +142,9 @@ func (s *Server) handlePublicKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d, must-revalidate", int(maxAge.Seconds())))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 type discovery struct {
@@ -189,7 +191,9 @@ func (s *Server) discoveryHandler() (http.HandlerFunc, error) {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}), nil
 }
 
@@ -357,7 +361,7 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		redirectURL, err := s.finalizeLogin(identity, authReq, conn)
+		redirectURL, err := s.finalizeLogin(identity, authReq)
 		if err != nil {
 			s.logger.Errorf("Failed to finalize login: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Login error.")
@@ -440,7 +444,7 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	redirectURL, err := s.finalizeLogin(identity, authReq, conn)
+	redirectURL, err := s.finalizeLogin(identity, authReq)
 	if err != nil {
 		s.logger.Errorf("Failed to finalize login: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Login error.")
@@ -452,7 +456,7 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 
 // finalizeLogin associates the user's identity with the current AuthRequest, then returns
 // the approval page's path.
-func (s *Server) finalizeLogin(identity Identity, authReq AuthRequest, conn Connector) (string, error) {
+func (s *Server) finalizeLogin(identity Identity, authReq AuthRequest) (string, error) {
 	claims := Claims{
 		UserID:        identity.UserID,
 		Username:      identity.Username,
@@ -1066,7 +1070,9 @@ func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(claims)
+	if _, err := w.Write(claims); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) writeAccessToken(w http.ResponseWriter, idToken, accessToken, refreshToken string, expiry time.Time) {
@@ -1091,7 +1097,9 @@ func (s *Server) writeAccessToken(w http.ResponseWriter, idToken, accessToken, r
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) renderError(w http.ResponseWriter, status int, description string) {

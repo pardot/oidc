@@ -2,7 +2,6 @@ package oidcserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -27,11 +26,11 @@ func NewCallbackConnector(logger logrus.FieldLogger) Connector {
 }
 
 var (
-	_CallbackConnector CallbackConnector = &Callback{}
-	_                  RefreshConnector  = &Callback{}
+	_ CallbackConnector = &Callback{}
+	_ RefreshConnector  = &Callback{}
 
-	_PasswordConnector PasswordConnector = passwordConnector{}
-	_RefreshConnector  RefreshConnector  = passwordConnector{}
+	_ PasswordConnector = passwordConnector{}
+	_ RefreshConnector  = passwordConnector{}
 )
 
 // Callback is a connector that requires no user interaction and always returns the same identity.
@@ -65,36 +64,9 @@ func (m *Callback) Refresh(ctx context.Context, s Scopes, identity Identity) (Id
 	return m.Identity, nil
 }
 
-// CallbackConfig holds the configuration parameters for a connector which requires no interaction.
-type CallbackConfig struct{}
-
-// Open returns an authentication strategy which requires no user interaction.
-func (c *CallbackConfig) Open(id string, logger logrus.FieldLogger) (Connector, error) {
-	return NewCallbackConnector(logger), nil
-}
-
-// PasswordConfig holds the configuration for a mock connector which prompts for the supplied
-// username and password.
-type PasswordConfig struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-// Open returns an authentication strategy which prompts for a predefined username and password.
-func (c *PasswordConfig) Open(id string, logger logrus.FieldLogger) (Connector, error) {
-	if c.Username == "" {
-		return nil, errors.New("no username supplied")
-	}
-	if c.Password == "" {
-		return nil, errors.New("no password supplied")
-	}
-	return &passwordConnector{c.Username, c.Password, logger}, nil
-}
-
 type passwordConnector struct {
 	username string
 	password string
-	logger   logrus.FieldLogger
 }
 
 func (p passwordConnector) Close() error { return nil }

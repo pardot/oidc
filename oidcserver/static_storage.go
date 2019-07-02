@@ -160,17 +160,3 @@ func (s staticPasswordsStorage) UpdatePassword(email string, updater func(old Pa
 	}
 	return s.Storage.UpdatePassword(email, updater)
 }
-
-// staticConnectorsStorage represents a storage with read-only set of connectors.
-type staticConnectorsStorage struct {
-	Storage
-
-	// A read-only set of connectors.
-	connectors     []Connector
-	connectorsByID map[string]Connector
-}
-
-func (s staticConnectorsStorage) isStatic(id string) bool {
-	_, ok := s.connectorsByID[id]
-	return ok
-}

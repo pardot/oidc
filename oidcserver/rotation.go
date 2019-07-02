@@ -91,7 +91,6 @@ func (s *Server) startKeyRotation(ctx context.Context, strategy rotationStrategy
 			}
 		}
 	}()
-	return
 }
 
 func (k keyRotater) rotate() error {

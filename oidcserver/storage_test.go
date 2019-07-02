@@ -1,6 +1,5 @@
 package oidcserver
 
-
 import (
 	"strings"
 	"sync"

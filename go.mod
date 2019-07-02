@@ -9,10 +9,10 @@ require (
 	github.com/felixge/httpsnoop v1.0.0
 	github.com/ghodss/yaml v1.0.0
 	github.com/golang/protobuf v1.2.0
+	github.com/golangci/golangci-lint v1.17.1
 	github.com/gorilla/handlers v1.4.0
 	github.com/gorilla/mux v0.0.0-20180903154305-9e1f5955c0d2
 	github.com/gorilla/sessions v1.1.2
-	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/kylelemons/godebug v0.0.0-20170820004349-d65d576e9348
 	github.com/lib/pq v1.0.0
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
@@ -25,16 +25,13 @@ require (
 	github.com/prometheus/common v0.0.0-20180801064454-c7de2306084e // indirect
 	github.com/prometheus/procfs v0.0.0-20180920065004-418d78d0b9a7 // indirect
 	github.com/sirupsen/logrus v1.0.6
-	github.com/spf13/cobra v0.0.0-20180915222204-8d114be902bc
+	github.com/spf13/cobra v0.0.2
 	github.com/spf13/pflag v1.0.3 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
 	github.com/ugorji/go/codec v1.1.5-pre
-	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
-	golang.org/x/net v0.0.0-20190311183353-d8887717615a // indirect
+	golang.org/x/crypto v0.0.0-20190313024323-a1f597ede03a
 	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
 	google.golang.org/appengine v1.2.0 // indirect
-	gopkg.in/airbrake/gobrake.v2 v2.0.9 // indirect
-	gopkg.in/gemnasium/logrus-airbrake-hook.v2 v2.1.2 // indirect
 	gopkg.in/square/go-jose.v2 v2.1.9
 	gopkg.in/yaml.v2 v2.2.1
 )

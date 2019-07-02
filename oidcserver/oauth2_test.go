@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -145,7 +146,7 @@ func TestParseAuthorizationRequest(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		func() {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -175,7 +176,7 @@ func TestParseAuthorizationRequest(t *testing.T) {
 			if err == nil && tc.wantErr {
 				t.Errorf("%s: expected error", tc.name)
 			}
-		}()
+		})
 	}
 }
 
@@ -251,12 +252,14 @@ func TestValidRedirectURI(t *testing.T) {
 			wantValid:   false,
 		},
 	}
-	for _, test := range tests {
-		got := validateRedirectURI(test.client, test.redirectURI)
-		if got != test.wantValid {
-			t.Errorf("client=%#v, redirectURI=%q, wanted valid=%t, got=%t",
-				test.client, test.redirectURI, test.wantValid, got)
-		}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
+			got := validateRedirectURI(test.client, test.redirectURI)
+			if got != test.wantValid {
+				t.Errorf("client=%#v, redirectURI=%q, wanted valid=%t, got=%t",
+					test.client, test.redirectURI, test.wantValid, got)
+			}
+		})
 	}
 }
 
