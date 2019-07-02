@@ -1,8 +1,9 @@
-package oidcserver
+package signer
 
 import (
 	"os"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,9 +71,9 @@ func TestKeyRotater(t *testing.T) {
 		Level:     logrus.DebugLevel,
 	}
 
-	r := &keyRotater{
-		Storage:  newMemoryStore(l),
-		strategy: defaultRotationStrategy(rotationFrequency, validFor),
+	r := &RotatingSigner{
+		storage:  newMemoryStore(),
+		strategy: DefaultRotationStrategy(rotationFrequency, validFor),
 		now:      func() time.Time { return now },
 		logger:   l,
 	}
@@ -85,15 +86,46 @@ func TestKeyRotater(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		got := verificationKeyIDs(t, r.Storage)
+		got := verificationKeyIDs(t, r.storage)
 
 		if !slicesEq(expVerificationKeys, got) {
 			t.Errorf("after %d rotation, expected verification keys %q, got %q", i+1, expVerificationKeys, got)
 		}
 
-		expVerificationKeys = append(expVerificationKeys, signingKeyID(t, r.Storage))
+		expVerificationKeys = append(expVerificationKeys, signingKeyID(t, r.storage))
 		if n := len(expVerificationKeys); n > maxVerificationKeys {
 			expVerificationKeys = expVerificationKeys[n-maxVerificationKeys:]
 		}
 	}
+}
+
+// New returns an in memory
+func newMemoryStore() Storage {
+	return &memStorage{}
+}
+
+type memStorage struct {
+	mu   sync.Mutex
+	keys Keys
+}
+
+func (s *memStorage) tx(f func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f()
+}
+
+func (s *memStorage) GetKeys() (keys Keys, err error) {
+	s.tx(func() { keys = s.keys })
+	return
+}
+
+func (s *memStorage) UpdateKeys(updater func(old Keys) (Keys, error)) (err error) {
+	s.tx(func() {
+		var keys Keys
+		if keys, err = updater(s.keys); err == nil {
+			s.keys = keys
+		}
+	})
+	return
 }

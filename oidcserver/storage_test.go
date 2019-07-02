@@ -33,8 +33,6 @@ type memStorage struct {
 	offlineSessions map[offlineSessionID]OfflineSessions
 	connectors      map[string]Connector
 
-	keys Keys
-
 	logger logrus.FieldLogger
 }
 
@@ -169,11 +167,6 @@ func (s *memStorage) GetClient(id string) (client Client, err error) {
 			err = ErrNotFound
 		}
 	})
-	return
-}
-
-func (s *memStorage) GetKeys() (keys Keys, err error) {
-	s.tx(func() { keys = s.keys })
 	return
 }
 
@@ -351,16 +344,6 @@ func (s *memStorage) UpdateClient(id string, updater func(old Client) (Client, e
 		}
 		if client, err = updater(client); err == nil {
 			s.clients[id] = client
-		}
-	})
-	return
-}
-
-func (s *memStorage) UpdateKeys(updater func(old Keys) (Keys, error)) (err error) {
-	s.tx(func() {
-		var keys Keys
-		if keys, err = updater(s.keys); err == nil {
-			s.keys = keys
 		}
 	})
 	return

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
+	"github.com/heroku/deci/signer"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -95,11 +96,23 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 	s.URL = config.Issuer
 
 	var err error
-	if server, err = newServer(ctx, config, staticRotationStrategy(testKey)); err != nil {
+	if server, err = newServer(ctx, config); err != nil {
 		t.Fatal(err)
 	}
 	server.connectors = map[string]Connector{"mock": NewCallbackConnector(logger)}
 	server.skipApproval = true // Don't prompt for approval, just immediately redirect with code.
+
+	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: testKey}
+	verificationKeys := []jose.JSONWebKey{
+		{
+			Key:       testKey.Public(),
+			KeyID:     "testkey",
+			Algorithm: "RS256",
+			Use:       "sig",
+		},
+	}
+	server.signer = signer.NewStatic(signingKey, verificationKeys)
+
 	return s, server
 }
 
@@ -181,6 +194,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 				if !ok {
 					return fmt.Errorf("no id token found")
 				}
+				t.Logf("token: %s", idToken)
 				if _, err := p.Verifier(oidcConfig).Verify(ctx, idToken); err != nil {
 					return fmt.Errorf("failed to verify id token: %v", err)
 				}
@@ -1010,85 +1024,6 @@ func TestPasswordDBUsernamePrompt(t *testing.T) {
 	expected := "Email Address"
 	if actual := conn.Prompt(); actual != expected {
 		t.Errorf("expected %v, got %v", expected, actual)
-	}
-}
-
-type storageWithKeysTrigger struct {
-	Storage
-	f func()
-}
-
-func (s storageWithKeysTrigger) GetKeys() (Keys, error) {
-	s.f()
-	return s.Storage.GetKeys()
-}
-
-func TestKeyCacher(t *testing.T) {
-	tNow := time.Now()
-	now := func() time.Time { return tNow }
-
-	s := newMemoryStore(logger)
-
-	tests := []struct {
-		before            func()
-		wantCallToStorage bool
-	}{
-		{
-			before:            func() {},
-			wantCallToStorage: true,
-		},
-		{
-			before: func() {
-				if err := s.UpdateKeys(func(old Keys) (Keys, error) {
-					old.NextRotation = tNow.Add(time.Minute)
-					return old, nil
-				}); err != nil {
-					t.Fatal(err)
-				}
-			},
-			wantCallToStorage: true,
-		},
-		{
-			before:            func() {},
-			wantCallToStorage: false,
-		},
-		{
-			before: func() {
-				tNow = tNow.Add(time.Hour)
-			},
-			wantCallToStorage: true,
-		},
-		{
-			before: func() {
-				tNow = tNow.Add(time.Hour)
-				if err := s.UpdateKeys(func(old Keys) (Keys, error) {
-					old.NextRotation = tNow.Add(time.Minute)
-					return old, nil
-				}); err != nil {
-					t.Fatal(err)
-				}
-			},
-			wantCallToStorage: true,
-		},
-		{
-			before:            func() {},
-			wantCallToStorage: false,
-		},
-	}
-
-	gotCall := false
-	s = newKeyCacher(storageWithKeysTrigger{s, func() { gotCall = true }}, now)
-	for i, tc := range tests {
-		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
-			gotCall = false
-			tc.before()
-			if _, err := s.GetKeys(); err != nil {
-				t.Fatal(err)
-			}
-			if gotCall != tc.wantCallToStorage {
-				t.Errorf("case %d: expected call to storage=%t got call to storage=%t", i, tc.wantCallToStorage, gotCall)
-			}
-		})
 	}
 }
 

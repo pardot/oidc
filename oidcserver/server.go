@@ -9,21 +9,33 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/felixge/httpsnoop"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/square/go-jose.v2"
 )
 
 // LocalConnector is the local passwordDB connector which is an internal
 // connector maintained by the server.
 const LocalConnector = "local"
+
+// Signer is used for signing the identity tokens
+type Signer interface {
+	// PublicKeys returns a keyset of all valid signer public keys considered
+	// valid for signed tokens
+	PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error)
+	// SignerAlg returns the algorithm the signer uses
+	SignerAlg(ctx context.Context) (jose.SignatureAlgorithm, error)
+	// Sign the provided data
+	Sign(ctx context.Context, data []byte) (signed []byte, err error)
+	// VerifySignature verifies the signature given token against the current signers
+	VerifySignature(ctx context.Context, jwt string) (payload []byte, err error)
+}
 
 // Config holds the server's configuration options.
 //
@@ -115,21 +127,20 @@ type Server struct {
 
 	now func() time.Time
 
-	idTokensValidFor     time.Duration
 	authRequestsValidFor time.Duration
+	idTokensValidFor     time.Duration
+
+	signer Signer
 
 	logger logrus.FieldLogger
 }
 
 // NewServer constructs a server from the provided config.
 func NewServer(ctx context.Context, c Config) (*Server, error) {
-	return newServer(ctx, c, defaultRotationStrategy(
-		value(c.RotateKeysAfter, 6*time.Hour),
-		value(c.IDTokensValidFor, 24*time.Hour),
-	))
+	return newServer(ctx, c)
 }
 
-func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy) (*Server, error) {
+func newServer(ctx context.Context, c Config) (*Server, error) {
 	issuerURL, err := url.Parse(c.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
@@ -173,7 +184,7 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 	s := &Server{
 		issuerURL:              *issuerURL,
 		connectors:             make(map[string]Connector),
-		storage:                newKeyCacher(c.Storage, now),
+		storage:                c.Storage,
 		supportedResponseTypes: supported,
 		idTokensValidFor:       value(c.IDTokensValidFor, 24*time.Hour),
 		authRequestsValidFor:   value(c.AuthRequestsValidFor, 24*time.Hour),
@@ -252,7 +263,6 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 	handlePrefix("/theme", theme)
 	s.mux = r
 
-	s.startKeyRotation(ctx, rotationStrategy, now)
 	s.startGarbageCollection(ctx, value(c.GCFrequency, 5*time.Minute), now)
 
 	return s, nil
@@ -337,38 +347,6 @@ func (db passwordDB) Refresh(ctx context.Context, s Scopes, identity Identity) (
 
 func (db passwordDB) Prompt() string {
 	return "Email Address"
-}
-
-// newKeyCacher returns a storage which caches keys so long as the next
-func newKeyCacher(s Storage, now func() time.Time) Storage {
-	if now == nil {
-		now = time.Now
-	}
-	return &keyCacher{Storage: s, now: now}
-}
-
-type keyCacher struct {
-	Storage
-
-	now  func() time.Time
-	keys atomic.Value // Always holds nil or type *storage.Keys.
-}
-
-func (k *keyCacher) GetKeys() (Keys, error) {
-	keys, ok := k.keys.Load().(*Keys)
-	if ok && keys != nil && k.now().Before(keys.NextRotation) {
-		return *keys, nil
-	}
-
-	storageKeys, err := k.Storage.GetKeys()
-	if err != nil {
-		return storageKeys, err
-	}
-
-	if k.now().Before(storageKeys.NextRotation) {
-		k.keys.Store(&storageKeys)
-	}
-	return storageKeys, nil
 }
 
 func (s *Server) startGarbageCollection(ctx context.Context, frequency time.Duration, now func() time.Time) {

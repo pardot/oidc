@@ -2,14 +2,10 @@ package oidcserver
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -140,54 +136,6 @@ func parseScopes(scopes []string) Scopes {
 	return s
 }
 
-// Determine the signature algorithm for a JWT.
-func signatureAlgorithm(jwk *jose.JSONWebKey) (alg jose.SignatureAlgorithm, err error) {
-	if jwk.Key == nil {
-		return alg, errors.New("no signing key")
-	}
-	switch key := jwk.Key.(type) {
-	case *rsa.PrivateKey:
-		// Because OIDC mandates that we support RS256, we always return that
-		// value. In the future, we might want to make this configurable on a
-		// per client basis. For example allowing PS256 or ECDSA variants.
-		//
-		// See https://github.com/dexidp/dex/issues/692
-		return jose.RS256, nil
-	case *ecdsa.PrivateKey:
-		// We don't actually support ECDSA keys yet, but they're tested for
-		// in case we want to in the future.
-		//
-		// These values are prescribed depending on the ECDSA key type. We
-		// can't return different values.
-		switch key.Params() {
-		case elliptic.P256().Params():
-			return jose.ES256, nil
-		case elliptic.P384().Params():
-			return jose.ES384, nil
-		case elliptic.P521().Params():
-			return jose.ES512, nil
-		default:
-			return alg, errors.New("unsupported ecdsa curve")
-		}
-	default:
-		return alg, fmt.Errorf("unsupported signing key type %T", key)
-	}
-}
-
-func signPayload(key *jose.JSONWebKey, alg jose.SignatureAlgorithm, payload []byte) (jws string, err error) {
-	signingKey := jose.SigningKey{Key: key, Algorithm: alg}
-
-	signer, err := jose.NewSigner(signingKey, &jose.SignerOptions{})
-	if err != nil {
-		return "", fmt.Errorf("new signier: %v", err)
-	}
-	signature, err := signer.Sign(payload)
-	if err != nil {
-		return "", fmt.Errorf("signing payload: %v", err)
-	}
-	return signature.CompactSerialize()
-}
-
 // The hash algorithm for the at_hash is determined by the signing
 // algorithm used for the id_token. From the spec:
 //
@@ -272,21 +220,6 @@ func (s *Server) newAccessToken(clientID string, claims Claims, scopes []string,
 }
 
 func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, nonce, accessToken, connID string) (idToken string, expiry time.Time, err error) {
-	keys, err := s.storage.GetKeys()
-	if err != nil {
-		s.logger.Errorf("Failed to get keys: %v", err)
-		return "", expiry, err
-	}
-
-	signingKey := keys.SigningKey
-	if signingKey == nil {
-		return "", expiry, fmt.Errorf("no key to sign payload with")
-	}
-	signingAlg, err := signatureAlgorithm(signingKey)
-	if err != nil {
-		return "", expiry, err
-	}
-
 	issuedAt := s.now()
 	expiry = issuedAt.Add(s.idTokensValidFor)
 
@@ -307,6 +240,11 @@ func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, non
 		Nonce:    nonce,
 		Expiry:   expiry.Unix(),
 		IssuedAt: issuedAt.Unix(),
+	}
+
+	signingAlg, err := s.signer.SignerAlg(context.TODO())
+	if err != nil {
+		return "", expiry, err
 	}
 
 	if accessToken != "" {
@@ -371,10 +309,11 @@ func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, non
 		return "", expiry, fmt.Errorf("could not serialize claims: %v", err)
 	}
 
-	if idToken, err = signPayload(signingKey, signingAlg, payload); err != nil {
+	signed, err := s.signer.Sign(context.TODO(), payload)
+	if err != nil {
 		return "", expiry, fmt.Errorf("failed to sign payload: %v", err)
 	}
-	return idToken, expiry, nil
+	return string(signed), expiry, nil
 }
 
 // parse the initial request from the OAuth2 client.
@@ -566,42 +505,4 @@ func validateRedirectURI(client Client, redirectURI string) bool {
 	}
 	host, _, err := net.SplitHostPort(u.Host)
 	return err == nil && host == "localhost"
-}
-
-// storageKeySet implements the oidc.KeySet interface backed by Dex storage
-type storageKeySet struct {
-	Storage
-}
-
-func (s *storageKeySet) VerifySignature(_ context.Context, jwt string) (payload []byte, err error) {
-	jws, err := jose.ParseSigned(jwt)
-	if err != nil {
-		return nil, err
-	}
-
-	keyID := ""
-	for _, sig := range jws.Signatures {
-		keyID = sig.Header.KeyID
-		break
-	}
-
-	skeys, err := s.Storage.GetKeys()
-	if err != nil {
-		return nil, err
-	}
-
-	keys := []*jose.JSONWebKey{skeys.SigningKeyPub}
-	for _, vk := range skeys.VerificationKeys {
-		keys = append(keys, vk.PublicKey)
-	}
-
-	for _, key := range keys {
-		if keyID == "" || key.KeyID == keyID {
-			if payload, err := jws.Verify(key); err == nil {
-				return payload, nil
-			}
-		}
-	}
-
-	return nil, errors.New("failed to verify id token signature")
 }

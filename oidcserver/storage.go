@@ -7,8 +7,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
-	jose "gopkg.in/square/go-jose.v2"
 )
 
 var (
@@ -60,7 +58,6 @@ type Storage interface {
 	GetAuthRequest(id string) (AuthRequest, error)
 	GetAuthCode(id string) (AuthCode, error)
 	GetClient(id string) (Client, error)
-	GetKeys() (Keys, error)
 	GetRefresh(id string) (RefreshToken, error)
 	GetPassword(email string) (Password, error)
 	GetOfflineSessions(userID string, connID string) (OfflineSessions, error)
@@ -95,7 +92,6 @@ type Storage interface {
 	//		}
 	//
 	UpdateClient(id string, updater func(old Client) (Client, error)) error
-	UpdateKeys(updater func(old Keys) (Keys, error)) error
 	UpdateAuthRequest(id string, updater func(a AuthRequest) (AuthRequest, error)) error
 	UpdateRefreshToken(id string, updater func(r RefreshToken) (RefreshToken, error)) error
 	UpdatePassword(email string, updater func(p Password) (Password, error)) error
@@ -310,26 +306,3 @@ type Password struct {
 // 	// no generic struct we can use for this purpose, it is stored as a byte stream.
 // 	Config []byte `json:"email"`
 // }
-
-// VerificationKey is a rotated signing key which can still be used to verify
-// signatures.
-type VerificationKey struct {
-	PublicKey *jose.JSONWebKey `json:"publicKey"`
-	Expiry    time.Time        `json:"expiry"`
-}
-
-// Keys hold encryption and signing keys.
-type Keys struct {
-	// Key for creating and verifying signatures. These may be nil.
-	SigningKey    *jose.JSONWebKey
-	SigningKeyPub *jose.JSONWebKey
-
-	// Old signing keys which have been rotated but can still be used to validate
-	// existing signatures.
-	VerificationKeys []VerificationKey
-
-	// The next time the signing key will rotate.
-	//
-	// For caching purposes, implementations MUST NOT update keys before this time.
-	NextRotation time.Time
-}

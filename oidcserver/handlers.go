@@ -106,38 +106,22 @@ func (h *healthChecker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePublicKeys(w http.ResponseWriter, r *http.Request) {
-	// TODO(ericchiang): Cache this.
-	keys, err := s.storage.GetKeys()
+	ks, err := s.signer.PublicKeys(r.Context())
 	if err != nil {
-		s.logger.Errorf("failed to get keys: %v", err)
+		s.logger.WithError(err).Error("failed to fetch public keys")
 		s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 		return
 	}
 
-	if keys.SigningKeyPub == nil {
-		s.logger.Errorf("No public keys found.")
-		s.renderError(w, http.StatusInternalServerError, "Internal server error.")
-		return
-	}
-
-	jwks := jose.JSONWebKeySet{
-		Keys: make([]jose.JSONWebKey, len(keys.VerificationKeys)+1),
-	}
-	jwks.Keys[0] = *keys.SigningKeyPub
-	for i, verificationKey := range keys.VerificationKeys {
-		jwks.Keys[i+1] = *verificationKey.PublicKey
-	}
-
-	data, err := json.MarshalIndent(jwks, "", "  ")
+	data, err := json.MarshalIndent(ks, "", "  ")
 	if err != nil {
 		s.logger.Errorf("failed to marshal discovery data: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 		return
 	}
-	maxAge := keys.NextRotation.Sub(s.now())
-	if maxAge < (time.Minute * 2) {
-		maxAge = time.Minute * 2
-	}
+
+	// TODO(lstoll): is it worth setting a better time for this, and caching here?
+	maxAge := 1 * time.Minute
 
 	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d, must-revalidate", int(maxAge.Seconds())))
 	w.Header().Set("Content-Type", "application/json")
@@ -1056,7 +1040,7 @@ func (s *Server) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	rawIDToken := auth[len(prefix):]
 
-	verifier := oidc.NewVerifier(s.issuerURL.String(), &storageKeySet{s.storage}, &oidc.Config{SkipClientIDCheck: true})
+	verifier := oidc.NewVerifier(s.issuerURL.String(), s.signer, &oidc.Config{SkipClientIDCheck: true})
 	idToken, err := verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		s.tokenErrHelper(w, errAccessDenied, err.Error(), http.StatusForbidden)
