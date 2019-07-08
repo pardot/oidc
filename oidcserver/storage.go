@@ -88,9 +88,6 @@ type Storage interface {
 	UpdateRefreshToken(id string, updater func(r RefreshToken) (RefreshToken, error)) error
 	UpdateOfflineSessions(userID string, connID string, updater func(s OfflineSessions) (OfflineSessions, error)) error
 	// UpdateConnector(id string, updater func(c Connector) (Connector, error)) error
-
-	// GarbageCollect deletes all expired AuthCodes and AuthRequests.
-	GarbageCollect(now time.Time) (GCResult, error)
 }
 
 // Claims represents the ID Token claims supported by the server.

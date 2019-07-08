@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/square/go-jose.v2"
 )
 
@@ -301,8 +300,6 @@ func newServer(ctx context.Context, c Config) (*Server, error) {
 	handlePrefix("/theme", theme)
 	s.mux = r
 
-	s.startGarbageCollection(ctx, value(c.GCFrequency, 5*time.Minute), now)
-
 	return s, nil
 }
 
@@ -321,48 +318,4 @@ func (s *Server) absURL(pathItems ...string) string {
 	u := s.issuerURL
 	u.Path = s.absPath(pathItems...)
 	return u.String()
-}
-
-func (s *Server) startGarbageCollection(ctx context.Context, frequency time.Duration, now func() time.Time) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(frequency):
-				if r, err := s.storage.GarbageCollect(now()); err != nil {
-					s.logger.Errorf("garbage collection failed: %v", err)
-				} else if r.AuthRequests > 0 || r.AuthCodes > 0 {
-					s.logger.Infof("garbage collection run, delete auth requests=%d, auth codes=%d", r.AuthRequests, r.AuthCodes)
-				}
-			}
-		}
-	}()
-}
-
-const (
-	// recCost is the recommended bcrypt cost, which balances hash strength and
-	// efficiency.
-	recCost = 12
-
-	// upBoundCost is a sane upper bound on bcrypt cost determined by benchmarking:
-	// high enough to ensure secure encryption, low enough to not put unnecessary
-	// load on a dex server.
-	upBoundCost = 16
-)
-
-// checkCost returns an error if the hash provided does not meet lower or upper
-// bound cost requirements.
-func checkCost(hash []byte) error {
-	actual, err := bcrypt.Cost(hash)
-	if err != nil {
-		return fmt.Errorf("parsing bcrypt hash: %v", err)
-	}
-	if actual < bcrypt.DefaultCost {
-		return fmt.Errorf("given hash cost = %d does not meet minimum cost requirement = %d", actual, bcrypt.DefaultCost)
-	}
-	if actual > upBoundCost {
-		return fmt.Errorf("given hash cost = %d is above upper bound cost = %d, recommended cost = %d", actual, upBoundCost, recCost)
-	}
-	return nil
 }
