@@ -2,8 +2,8 @@ package oidcserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,99 +11,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/gorilla/mux"
-	jose "gopkg.in/square/go-jose.v2"
-
 	"github.com/heroku/deci/oidcserver/internal"
+	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	"github.com/heroku/deci/storage"
+	jose "gopkg.in/square/go-jose.v2"
 )
-
-// newHealthChecker returns the healthz handler. The handler runs until the
-// provided context is canceled.
-func (s *Server) newHealthChecker(ctx context.Context) http.Handler {
-	h := &healthChecker{s: s}
-
-	// Perform one health check synchronously so the returned handler returns
-	// valid data immediately.
-	h.runHealthCheck()
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second * 15):
-			}
-			h.runHealthCheck()
-		}
-	}()
-	return h
-}
-
-// healthChecker periodically performs health checks on server dependencies.
-// Currently, it only checks that the storage layer is available.
-type healthChecker struct {
-	s *Server
-
-	// Result of the last health check: any error and the amount of time it took
-	// to query the storage.
-	mu sync.RWMutex
-	// Guarded by the mutex
-	err    error
-	passed time.Duration
-}
-
-// runHealthCheck performs a single health check and makes the result available
-// for any clients performing and HTTP request against the healthChecker.
-func (h *healthChecker) runHealthCheck() {
-	t := h.s.now()
-	err := checkStorageHealth(h.s.storage, h.s.now)
-	passed := h.s.now().Sub(t)
-	if err != nil {
-		h.s.logger.Errorf("Storage health check failed: %v", err)
-	}
-
-	// Make sure to only hold the mutex to access the fields, and not while
-	// we're querying the storage object.
-	h.mu.Lock()
-	h.err = err
-	h.passed = passed
-	h.mu.Unlock()
-}
-
-func checkStorageHealth(s Storage, now func() time.Time) error {
-	a := AuthRequest{
-		ID:       NewID(),
-		ClientID: NewID(),
-
-		// Set a short expiry so if the delete fails this will be cleaned up quickly by garbage collection.
-		Expiry: now().Add(time.Minute),
-	}
-
-	if err := s.CreateAuthRequest(a); err != nil {
-		return fmt.Errorf("create auth request: %v", err)
-	}
-	if err := s.DeleteAuthRequest(a.ID); err != nil {
-		return fmt.Errorf("delete auth request: %v", err)
-	}
-	return nil
-}
-
-func (h *healthChecker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	err := h.err
-	t := h.passed
-	h.mu.RUnlock()
-
-	if err != nil {
-		h.s.renderError(w, http.StatusInternalServerError, "Health check failed.")
-		return
-	}
-	fmt.Fprintf(w, "Health check passed in %s", t)
-}
 
 func (s *Server) handlePublicKeys(w http.ResponseWriter, r *http.Request) {
 	ks, err := s.signer.PublicKeys(r.Context())
@@ -205,8 +122,14 @@ func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 	// screen too long.
 	//
 	// See: https://github.com/dexidp/dex/issues/646
-	authReq.Expiry = s.now().Add(s.authRequestsValidFor)
-	if err := s.storage.CreateAuthRequest(authReq); err != nil {
+	var perr error
+	authReq.Expiry, perr = ptypes.TimestampProto(s.now().Add(s.authRequestsValidFor))
+	if perr != nil {
+		s.logger.Errorf("Failed to convert timestamp: %v", err)
+		s.renderError(w, http.StatusInternalServerError, "Internal Error.")
+		return
+	}
+	if _, err := s.storage.Put(r.Context(), authReqKeyspace, authReq.Id, "", authReq); err != nil {
 		s.logger.Errorf("Failed to create authorization request: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Failed to connect to the database.")
 		return
@@ -216,7 +139,7 @@ func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 		for k := range s.connectors {
 			// TODO(ericchiang): Make this pass on r.URL.RawQuery and let something latter
 			// on create the auth request.
-			http.Redirect(w, r, s.absPath("/auth", k)+"?req="+authReq.ID, http.StatusFound)
+			http.Redirect(w, r, s.absPath("/auth", k)+"?req="+authReq.Id, http.StatusFound)
 			return
 		}
 	}
@@ -229,7 +152,7 @@ func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 			Name: k,
 			// TODO(ericchiang): Make this pass on r.URL.RawQuery and let something latter
 			// on create the auth request.
-			URL: s.absPath("/auth", k) + "?req=" + authReq.ID,
+			URL: s.absPath("/auth", k) + "?req=" + authReq.Id,
 		}
 		i++
 	}
@@ -250,10 +173,11 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 
 	authReqID := r.FormValue("req")
 
-	authReq, err := s.storage.GetAuthRequest(authReqID)
+	authReq := &storagepb.AuthRequest{}
+	authReqVers, err := s.storage.Get(r.Context(), authReqKeyspace, authReqID, authReq)
 	if err != nil {
 		s.logger.Errorf("Failed to get auth request: %v", err)
-		if err == ErrNotFound {
+		if storage.IsNotFoundErr(err) {
 			s.renderError(w, http.StatusBadRequest, "Login session expired.")
 		} else {
 			s.renderError(w, http.StatusInternalServerError, "Database error.")
@@ -262,12 +186,10 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the connector being used for the login.
-	if authReq.ConnectorID != connID {
-		updater := func(a AuthRequest) (AuthRequest, error) {
-			a.ConnectorID = connID
-			return a, nil
-		}
-		if err := s.storage.UpdateAuthRequest(authReqID, updater); err != nil {
+	if authReq.ConnectorId != connID {
+		authReq.ConnectorId = connID
+		authReqVers, err = s.storage.Put(r.Context(), authReqKeyspace, authReqID, authReqVers, authReq)
+		if err != nil {
 			s.logger.Errorf("Failed to set connector ID on auth request: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Database error.")
 			return
@@ -345,7 +267,7 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		redirectURL, err := s.finalizeLogin(identity, authReq)
+		redirectURL, err := s.finalizeLogin(r.Context(), identity, authReq, authReqVers)
 		if err != nil {
 			s.logger.Errorf("Failed to finalize login: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Login error.")
@@ -376,9 +298,10 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	authReq, err := s.storage.GetAuthRequest(authID)
+	authReq := &storagepb.AuthRequest{}
+	authReqVers, err := s.storage.Get(r.Context(), authReqKeyspace, authID, authReq)
 	if err != nil {
-		if err == ErrNotFound {
+		if storage.IsNotFoundErr(err) {
 			s.logger.Errorf("Invalid 'state' parameter provided: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
 			return
@@ -388,15 +311,15 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if connID := mux.Vars(r)["connector"]; connID != "" && connID != authReq.ConnectorID {
-		s.logger.Errorf("Connector mismatch: authentication started with id %q, but callback for id %q was triggered", authReq.ConnectorID, connID)
+	if connID := mux.Vars(r)["connector"]; connID != "" && connID != authReq.ConnectorId {
+		s.logger.Errorf("Connector mismatch: authentication started with id %q, but callback for id %q was triggered", authReq.ConnectorId, connID)
 		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
 		return
 	}
 
-	conn, ok := s.connectors[authReq.ConnectorID]
+	conn, ok := s.connectors[authReq.ConnectorId]
 	if !ok {
-		s.logger.Error("Failed to get connector with id %q : connector not found", authReq.ConnectorID)
+		s.logger.Errorf("Failed to get connector with id %q : connector not found", authReq.ConnectorId)
 		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
 		return
 	}
@@ -416,7 +339,7 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 			s.renderError(w, http.StatusBadRequest, "Invalid request")
 			return
 		}
-		identity, err = conn.HandlePOST(parseScopes(authReq.Scopes), r.PostFormValue("SAMLResponse"), authReq.ID)
+		identity, err = conn.HandlePOST(parseScopes(authReq.Scopes), r.PostFormValue("SAMLResponse"), authReq.Id)
 	default:
 		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
 		return
@@ -428,7 +351,7 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	redirectURL, err := s.finalizeLogin(identity, authReq)
+	redirectURL, err := s.finalizeLogin(r.Context(), identity, authReq, authReqVers)
 	if err != nil {
 		s.logger.Errorf("Failed to finalize login: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Login error.")
@@ -440,22 +363,20 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 
 // finalizeLogin associates the user's identity with the current AuthRequest, then returns
 // the approval page's path.
-func (s *Server) finalizeLogin(identity Identity, authReq AuthRequest) (string, error) {
-	claims := Claims{
-		UserID:        identity.UserID,
+func (s *Server) finalizeLogin(ctx context.Context, identity Identity, authReq *storagepb.AuthRequest, authReqVers string) (string, error) {
+	claims := &storagepb.Claims{
+		UserId:        identity.UserID,
 		Username:      identity.Username,
 		Email:         identity.Email,
 		EmailVerified: identity.EmailVerified,
 		Groups:        identity.Groups,
 	}
 
-	updater := func(a AuthRequest) (AuthRequest, error) {
-		a.LoggedIn = true
-		a.Claims = claims
-		a.ConnectorData = identity.ConnectorData
-		return a, nil
-	}
-	if err := s.storage.UpdateAuthRequest(authReq.ID, updater); err != nil {
+	authReq.LoggedIn = true
+	authReq.Claims = claims
+	authReq.ConnectorData = identity.ConnectorData
+
+	if _, err := s.storage.Put(ctx, authReqKeyspace, authReq.Id, authReqVers, authReq); err != nil {
 		return "", fmt.Errorf("failed to update auth request: %v", err)
 	}
 
@@ -465,13 +386,14 @@ func (s *Server) finalizeLogin(identity Identity, authReq AuthRequest) (string, 
 	}
 
 	s.logger.Infof("login successful: connector %q, username=%q, email=%q, groups=%q",
-		authReq.ConnectorID, claims.Username, email, claims.Groups)
+		authReq.ConnectorId, claims.Username, email, claims.Groups)
 
-	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + authReq.ID, nil
+	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + authReq.Id, nil
 }
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
-	authReq, err := s.storage.GetAuthRequest(r.FormValue("req"))
+	authReq := &storagepb.AuthRequest{}
+	_, err := s.storage.Get(r.Context(), authReqKeyspace, r.FormValue("req"), authReq)
 	if err != nil {
 		s.logger.Errorf("Failed to get auth request: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Database error.")
@@ -489,13 +411,13 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 			s.sendCodeResponse(w, r, authReq)
 			return
 		}
-		client, err := s.clients.GetClient(authReq.ClientID)
+		client, err := s.clients.GetClient(authReq.ClientId)
 		if err != nil {
-			s.logger.Errorf("Failed to get client %q: %v", authReq.ClientID, err)
+			s.logger.Errorf("Failed to get client %q: %v", authReq.ClientId, err)
 			s.renderError(w, http.StatusInternalServerError, "Failed to retrieve client.")
 			return
 		}
-		if err := s.templates.approval(w, authReq.ID, authReq.Claims.Username, client.Name, authReq.Scopes); err != nil {
+		if err := s.templates.approval(w, authReq.Id, authReq.Claims.Username, client.Name, authReq.Scopes); err != nil {
 			s.logger.Errorf("Server template error: %v", err)
 		}
 	case http.MethodPost:
@@ -507,14 +429,19 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authReq AuthRequest) {
-	if s.now().After(authReq.Expiry) {
+func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authReq *storagepb.AuthRequest) {
+	arexp, err := ptypes.Timestamp(authReq.Expiry)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Internal server error.")
+		return
+	}
+	if s.now().After(arexp) {
 		s.renderError(w, http.StatusBadRequest, "User session has expired.")
 		return
 	}
 
-	if err := s.storage.DeleteAuthRequest(authReq.ID); err != nil {
-		if err != ErrNotFound {
+	if err := s.storage.Delete(r.Context(), authReqKeyspace, authReq.Id); err != nil {
+		if !storage.IsNotFoundErr(err) {
 			s.logger.Errorf("Failed to delete authorization request: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 		} else {
@@ -522,7 +449,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 		}
 		return
 	}
-	u, err := url.Parse(authReq.RedirectURI)
+	u, err := url.Parse(authReq.RedirectUri)
 	if err != nil {
 		s.renderError(w, http.StatusInternalServerError, "Invalid redirect URI.")
 		return
@@ -534,7 +461,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 		implicitOrHybrid = false
 
 		// Only present in hybrid or code flow. code.ID == "" if this is not set.
-		code AuthCode
+		code *storagepb.AuthCode = &storagepb.AuthCode{}
 
 		// ID token returned immediately if the response_type includes "id_token".
 		// Only valid for implicit and hybrid flows.
@@ -548,18 +475,23 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 	for _, responseType := range authReq.ResponseTypes {
 		switch responseType {
 		case responseTypeCode:
-			code = AuthCode{
-				ID:            NewID(),
-				ClientID:      authReq.ClientID,
-				ConnectorID:   authReq.ConnectorID,
+			exp, err := ptypes.TimestampProto(s.now().Add(time.Minute * 30))
+			if err != nil {
+				s.renderError(w, http.StatusInternalServerError, "Internal Error.")
+				return
+			}
+			code = &storagepb.AuthCode{
+				Id:            NewID(),
+				ClientId:      authReq.ClientId,
+				ConnectorId:   authReq.ConnectorId,
 				Nonce:         authReq.Nonce,
 				Scopes:        authReq.Scopes,
 				Claims:        authReq.Claims,
-				Expiry:        s.now().Add(time.Minute * 30),
-				RedirectURI:   authReq.RedirectURI,
+				Expiry:        exp,
+				RedirectUri:   authReq.RedirectUri,
 				ConnectorData: authReq.ConnectorData,
 			}
-			if err := s.storage.CreateAuthCode(code); err != nil {
+			if _, err := s.storage.Put(r.Context(), authCodeKeyspace, code.Id, "", code); err != nil {
 				s.logger.Errorf("Failed to create auth code: %v", err)
 				s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 				return
@@ -567,8 +499,8 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 
 			// Implicit and hybrid flows that try to use the OOB redirect URI are
 			// rejected earlier. If we got here we're using the code flow.
-			if authReq.RedirectURI == redirectURIOOB {
-				if err := s.templates.oob(w, code.ID); err != nil {
+			if authReq.RedirectUri == redirectURIOOB {
+				if err := s.templates.oob(w, code.Id); err != nil {
 					s.logger.Errorf("Server template error: %v", err)
 				}
 				return
@@ -579,14 +511,14 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 			implicitOrHybrid = true
 			var err error
 
-			accessToken, err = s.newAccessToken(authReq.ClientID, authReq.Claims, authReq.Scopes, authReq.Nonce, authReq.ConnectorID)
+			accessToken, err = s.newAccessToken(authReq.ClientId, authReq.Claims, authReq.Scopes, authReq.Nonce, authReq.ConnectorId)
 			if err != nil {
 				s.logger.Errorf("failed to create new access token: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 				return
 			}
 
-			idToken, idTokenExpiry, err = s.newIDToken(authReq.ClientID, authReq.Claims, authReq.Scopes, authReq.Nonce, accessToken, authReq.ConnectorID)
+			idToken, idTokenExpiry, err = s.newIDToken(authReq.ClientId, authReq.Claims, authReq.Scopes, authReq.Nonce, accessToken, authReq.ConnectorId)
 			if err != nil {
 				s.logger.Errorf("failed to create ID token: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -607,12 +539,12 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 			// don't add it.
 			//
 			// https://openid.net/specs/openid-connect-core-1_0.html#HybridAuthResponse
-			if code.ID == "" {
+			if code.Id == "" {
 				v.Set("expires_in", strconv.Itoa(int(idTokenExpiry.Sub(s.now()).Seconds())))
 			}
 		}
-		if code.ID != "" {
-			v.Set("code", code.ID)
+		if code.Id != "" {
+			v.Set("code", code.Id)
 		}
 
 		// Implicit and hybrid flows return their values as part of the fragment.
@@ -635,7 +567,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 		//     &state=af0ifjsldkj
 		//
 		q := u.Query()
-		q.Set("code", code.ID)
+		q.Set("code", code.Id)
 		q.Set("state", authReq.State)
 		u.RawQuery = q.Encode()
 	}
@@ -662,7 +594,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 
 	client, err := s.clients.GetClient(clientID)
 	if err != nil {
-		if err != ErrNotFound {
+		if !isNoSuchClientErr(err) {
 			s.logger.Errorf("failed to get client: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		} else {
@@ -691,9 +623,10 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 	code := r.PostFormValue("code")
 	redirectURI := r.PostFormValue("redirect_uri")
 
-	authCode, err := s.storage.GetAuthCode(code)
-	if err != nil || s.now().After(authCode.Expiry) || authCode.ClientID != client.ID {
-		if err != ErrNotFound {
+	authCode := &storagepb.AuthCode{}
+	_, err := s.storage.Get(r.Context(), authCodeKeyspace, code, authCode)
+	if err != nil {
+		if !storage.IsNotFoundErr(err) {
 			s.logger.Errorf("failed to get auth code: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		} else {
@@ -701,27 +634,32 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 		}
 		return
 	}
+	authCodeExp, err := ptypes.Timestamp(authCode.Expiry)
+	if err != nil || s.now().After(authCodeExp) || authCode.ClientId != client.ID {
+		s.tokenErrHelper(w, errInvalidRequest, "Invalid or expired code parameter.", http.StatusBadRequest)
+		return
+	}
 
-	if authCode.RedirectURI != redirectURI {
+	if authCode.RedirectUri != redirectURI {
 		s.tokenErrHelper(w, errInvalidRequest, "redirect_uri did not match URI from initial request.", http.StatusBadRequest)
 		return
 	}
 
-	accessToken, err := s.newAccessToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, authCode.ConnectorID)
+	accessToken, err := s.newAccessToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, authCode.ConnectorId)
 	if err != nil {
 		s.logger.Errorf("failed to create new access token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 
-	idToken, expiry, err := s.newIDToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, accessToken, authCode.ConnectorID)
+	idToken, expiry, err := s.newIDToken(client.ID, authCode.Claims, authCode.Scopes, authCode.Nonce, accessToken, authCode.ConnectorId)
 	if err != nil {
 		s.logger.Errorf("failed to create ID token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 
-	if err := s.storage.DeleteAuthCode(code); err != nil {
+	if err := s.storage.Delete(r.Context(), authCodeKeyspace, code); err != nil {
 		s.logger.Errorf("failed to delete auth code: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
@@ -731,9 +669,9 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 		// Ensure the connector supports refresh tokens.
 		//
 		// Connectors like `saml` do not implement RefreshConnector.
-		conn, ok := s.connectors[authCode.ConnectorID]
+		conn, ok := s.connectors[authCode.ConnectorId]
 		if !ok {
-			s.logger.Errorf("connector with ID %q not found: %v", authCode.ConnectorID, err)
+			s.logger.Errorf("connector with ID %q not found: %v", authCode.ConnectorId, err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 			return false
 		}
@@ -752,20 +690,25 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 	}()
 	var refreshToken string
 	if reqRefresh {
-		refresh := RefreshToken{
-			ID:            NewID(),
+		nowts, err := ptypes.TimestampProto(s.now())
+		if err != nil {
+			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
+			return
+		}
+		refresh := &storagepb.RefreshToken{
+			Id:            NewID(),
 			Token:         NewID(),
-			ClientID:      authCode.ClientID,
-			ConnectorID:   authCode.ConnectorID,
+			ClientId:      authCode.ClientId,
+			ConnectorId:   authCode.ConnectorId,
 			Scopes:        authCode.Scopes,
 			Claims:        authCode.Claims,
 			Nonce:         authCode.Nonce,
 			ConnectorData: authCode.ConnectorData,
-			CreatedAt:     s.now(),
-			LastUsed:      s.now(),
+			CreatedAt:     nowts,
+			LastUsed:      nowts,
 		}
 		token := &internal.RefreshToken{
-			RefreshId: refresh.ID,
+			RefreshId: refresh.Id,
 			Token:     refresh.Token,
 		}
 		if refreshToken, err = internal.Marshal(token); err != nil {
@@ -774,7 +717,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 			return
 		}
 
-		if err := s.storage.CreateRefresh(refresh); err != nil {
+		if _, err := s.storage.Put(r.Context(), refreshTokenKeyspace, refresh.Id, "", refresh); err != nil {
 			s.logger.Errorf("failed to create refresh token: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 			return
@@ -787,7 +730,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 		defer func() {
 			if deleteToken {
 				// Delete newly created refresh token from storage.
-				if err := s.storage.DeleteRefresh(refresh.ID); err != nil {
+				if err := s.storage.Delete(r.Context(), refreshTokenKeyspace, refresh.Id); err != nil {
 					s.logger.Errorf("failed to delete refresh token: %v", err)
 					s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 					return
@@ -795,40 +738,41 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 			}
 		}()
 
-		tokenRef := RefreshTokenRef{
-			ID:        refresh.ID,
-			ClientID:  refresh.ClientID,
+		tokenRef := &storagepb.RefreshTokenRef{
+			Id:        refresh.Id,
+			ClientId:  refresh.ClientId,
 			CreatedAt: refresh.CreatedAt,
 			LastUsed:  refresh.LastUsed,
 		}
 
 		// Try to retrieve an existing OfflineSession object for the corresponding user.
-		if session, err := s.storage.GetOfflineSessions(refresh.Claims.UserID, refresh.ConnectorID); err != nil {
-			if err != ErrNotFound {
+		session := &storagepb.OfflineSessions{}
+		if sessVer, err := s.storage.Get(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), session); err != nil {
+			if !storage.IsNotFoundErr(err) {
 				s.logger.Errorf("failed to get offline session: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 				deleteToken = true
 				return
 			}
-			offlineSessions := OfflineSessions{
-				UserID:  refresh.Claims.UserID,
-				ConnID:  refresh.ConnectorID,
-				Refresh: make(map[string]*RefreshTokenRef),
+			offlineSessions := &storagepb.OfflineSessions{
+				UserId:  refresh.Claims.UserId,
+				ConnId:  refresh.ConnectorId,
+				Refresh: make(map[string]*storagepb.RefreshTokenRef),
 			}
-			offlineSessions.Refresh[tokenRef.ClientID] = &tokenRef
+			offlineSessions.Refresh[tokenRef.ClientId] = tokenRef
 
 			// Create a new OfflineSession object for the user and add a reference object for
 			// the newly received refreshtoken.
-			if err := s.storage.CreateOfflineSessions(offlineSessions); err != nil {
+			if _, err := s.storage.Put(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), "", offlineSessions); err != nil {
 				s.logger.Errorf("failed to create offline session: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 				deleteToken = true
 				return
 			}
 		} else {
-			if oldTokenRef, ok := session.Refresh[tokenRef.ClientID]; ok {
+			if oldTokenRef, ok := session.Refresh[tokenRef.ClientId]; ok {
 				// Delete old refresh token from storage.
-				if err := s.storage.DeleteRefresh(oldTokenRef.ID); err != nil {
+				if err := s.storage.Delete(r.Context(), refreshTokenKeyspace, oldTokenRef.Id); err != nil {
 					s.logger.Errorf("failed to delete refresh token: %v", err)
 					s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 					deleteToken = true
@@ -837,10 +781,8 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 			}
 
 			// Update existing OfflineSession obj with new RefreshTokenRef.
-			if err := s.storage.UpdateOfflineSessions(session.UserID, session.ConnID, func(old OfflineSessions) (OfflineSessions, error) {
-				old.Refresh[tokenRef.ClientID] = &tokenRef
-				return old, nil
-			}); err != nil {
+			session.Refresh[tokenRef.ClientId] = tokenRef
+			if _, err := s.storage.Put(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), sessVer, session); err != nil {
 				s.logger.Errorf("failed to update offline session: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 				deleteToken = true
@@ -872,23 +814,24 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		token = &internal.RefreshToken{RefreshId: code, Token: ""}
 	}
 
-	refresh, err := s.storage.GetRefresh(token.RefreshId)
+	refresh := &storagepb.RefreshToken{}
+	refreshVers, err := s.storage.Get(r.Context(), refreshTokenKeyspace, token.RefreshId, refresh)
 	if err != nil {
 		s.logger.Errorf("failed to get refresh token: %v", err)
-		if err == ErrNotFound {
+		if storage.IsNotFoundErr(err) {
 			s.tokenErrHelper(w, errInvalidRequest, "Refresh token is invalid or has already been claimed by another client.", http.StatusBadRequest)
 		} else {
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		}
 		return
 	}
-	if refresh.ClientID != client.ID {
-		s.logger.Errorf("client %s trying to claim token for client %s", client.ID, refresh.ClientID)
+	if refresh.ClientId != client.ID {
+		s.logger.Errorf("client %s trying to claim token for client %s", client.ID, refresh.ClientId)
 		s.tokenErrHelper(w, errInvalidRequest, "Refresh token is invalid or has already been claimed by another client.", http.StatusBadRequest)
 		return
 	}
 	if refresh.Token != token.Token {
-		s.logger.Errorf("refresh token with id %s claimed twice", refresh.ID)
+		s.logger.Errorf("refresh token with id %s claimed twice", refresh.Id)
 		s.tokenErrHelper(w, errInvalidRequest, "Refresh token is invalid or has already been claimed by another client.", http.StatusBadRequest)
 		return
 	}
@@ -924,14 +867,14 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		scopes = requestedScopes
 	}
 
-	conn, ok := s.connectors[refresh.ConnectorID]
+	conn, ok := s.connectors[refresh.ConnectorId]
 	if !ok {
-		s.logger.Errorf("connector with ID %q not found", refresh.ConnectorID)
+		s.logger.Errorf("connector with ID %q not found", refresh.ConnectorId)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 	ident := Identity{
-		UserID:        refresh.Claims.UserID,
+		UserID:        refresh.Claims.UserId,
 		Username:      refresh.Claims.Username,
 		Email:         refresh.Claims.Email,
 		EmailVerified: refresh.Claims.EmailVerified,
@@ -954,22 +897,22 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		ident = newIdent
 	}
 
-	claims := Claims{
-		UserID:        ident.UserID,
+	claims := &storagepb.Claims{
+		UserId:        ident.UserID,
 		Username:      ident.Username,
 		Email:         ident.Email,
 		EmailVerified: ident.EmailVerified,
 		Groups:        ident.Groups,
 	}
 
-	accessToken, err := s.newAccessToken(client.ID, claims, scopes, refresh.Nonce, refresh.ConnectorID)
+	accessToken, err := s.newAccessToken(client.ID, claims, scopes, refresh.Nonce, refresh.ConnectorId)
 	if err != nil {
 		s.logger.Errorf("failed to create new access token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 
-	idToken, expiry, err := s.newIDToken(client.ID, claims, scopes, refresh.Nonce, accessToken, refresh.ConnectorID)
+	idToken, expiry, err := s.newIDToken(client.ID, claims, scopes, refresh.Nonce, accessToken, refresh.ConnectorId)
 	if err != nil {
 		s.logger.Errorf("failed to create ID token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
@@ -977,7 +920,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 	}
 
 	newToken := &internal.RefreshToken{
-		RefreshId: refresh.ID,
+		RefreshId: refresh.Id,
 		Token:     NewID(),
 	}
 	rawNewToken, err := internal.Marshal(newToken)
@@ -987,40 +930,49 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 
-	lastUsed := s.now()
-	updater := func(old RefreshToken) (RefreshToken, error) {
-		if old.Token != refresh.Token {
-			return old, errors.New("refresh token claimed twice")
-		}
-		old.Token = newToken.Token
-		// Update the claims of the refresh token.
-		//
-		// UserID intentionally ignored for now.
-		old.Claims.Username = ident.Username
-		old.Claims.Email = ident.Email
-		old.Claims.EmailVerified = ident.EmailVerified
-		old.Claims.Groups = ident.Groups
-		old.ConnectorData = ident.ConnectorData
-		old.LastUsed = lastUsed
-		return old, nil
+	lastUsed, err := ptypes.TimestampProto(s.now())
+	if err != nil {
+		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
+		return
 	}
 
 	// Update LastUsed time stamp in refresh token reference object
 	// in offline session for the user.
-	if err := s.storage.UpdateOfflineSessions(refresh.Claims.UserID, refresh.ConnectorID, func(old OfflineSessions) (OfflineSessions, error) {
-		if old.Refresh[refresh.ClientID].ID != refresh.ID {
-			return old, errors.New("refresh token invalid")
-		}
-		old.Refresh[refresh.ClientID].LastUsed = lastUsed
-		return old, nil
-	}); err != nil {
+	offlineSession := &storagepb.OfflineSessions{}
+	offlineSessionVers, err := s.storage.Get(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), offlineSession)
+	if err != nil {
+		s.logger.Errorf("failed to fetch offline session for update: %v", err)
+		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
+		return
+	}
+	if offlineSession.Refresh[refresh.ClientId].Id != refresh.Id {
+		s.tokenErrHelper(w, errServerError, "Offline Session Invalid", http.StatusInternalServerError)
+		return
+	}
+	offlineSession.Refresh[refresh.ClientId].LastUsed = lastUsed
+	if _, err := s.storage.Put(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), offlineSessionVers, offlineSession); err != nil {
 		s.logger.Errorf("failed to update offline session: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
 
+	refresh.Token = newToken.Token
+	// Update the claims of the refresh token.
+	//
+	// UserID intentionally ignored for now.
+	refresh.Claims.Username = ident.Username
+	refresh.Claims.Email = ident.Email
+	refresh.Claims.EmailVerified = ident.EmailVerified
+	refresh.Claims.Groups = ident.Groups
+	refresh.ConnectorData = ident.ConnectorData
+	refresh.LastUsed = lastUsed
+
 	// Update refresh token in the storage.
-	if err := s.storage.UpdateRefreshToken(refresh.ID, updater); err != nil {
+	if _, err := s.storage.Put(r.Context(), refreshTokenKeyspace, refresh.Id, refreshVers, refresh); err != nil {
+		if storage.IsConflictErr(err) {
+			s.tokenErrHelper(w, errServerError, "refresh token claimed twice", http.StatusInternalServerError)
+			return
+		}
 		s.logger.Errorf("failed to update refresh token: %v", err)
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
@@ -1104,4 +1056,12 @@ func usernamePrompt(conn PasswordConnector) string {
 		return attr
 	}
 	return "Username"
+}
+
+func offlineSessionID(userID, connID string) string {
+	return fmt.Sprintf(
+		"%s-%s",
+		base64.StdEncoding.EncodeToString([]byte(userID)),
+		base64.StdEncoding.EncodeToString([]byte(connID)),
+	)
 }

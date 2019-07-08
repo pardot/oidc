@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -131,7 +132,7 @@ func newStorage(t *testing.T) (storage.Storage, func()) {
 		_ = os.RemoveAll(dir)
 	}
 
-	s, err := disk.New(dir+"test.db", 0644)
+	s, err := disk.New(filepath.Join(dir, "test.db"), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}

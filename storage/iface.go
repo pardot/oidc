@@ -18,11 +18,11 @@ type Storage interface {
 	// it's version should be included, for new objects the version string
 	// should be empty. If the update fails because of a version conflict, an
 	// IsConflictErr will be returned
-	Put(ctx context.Context, keyspace, key, version string, obj proto.Message) error
+	Put(ctx context.Context, keyspace, key, version string, obj proto.Message) (newVersion string, err error)
 	// PutWithExpiry is a Put, with a time that the item should no longer
 	// be accessible. This doesn't guarantee that the data will be deleted at
 	// the time, but Get should not return it.
-	PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time) error
+	PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time) (newVersion string, err error)
 	// List retrieves all keys in the given keyspace.
 	List(ctx context.Context, keyspace string) (keys []string, err error)
 	// Delete removes the item. If the item doesn't exist, an IsNotFoundErr will

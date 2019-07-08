@@ -34,6 +34,7 @@ require (
 	go.etcd.io/bbolt v1.3.3
 	golang.org/x/crypto v0.0.0-20190313024323-a1f597ede03a
 	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
+	golang.org/x/tools v0.0.0-20190524140312-2c0ae7006135 // indirect
 	google.golang.org/appengine v1.2.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.1.9
 	gopkg.in/yaml.v2 v2.2.1

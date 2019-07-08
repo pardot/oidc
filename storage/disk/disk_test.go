@@ -33,7 +33,7 @@ func TestSetGet(t *testing.T) {
 		OString: &h,
 	}
 
-	err := s.Put(ctx, "test", "setget", "", msg)
+	_, err := s.Put(ctx, "test", "setget", "", msg)
 	if err != nil {
 		t.Fatalf("Want: no error, got %v", err)
 	}
@@ -55,7 +55,7 @@ func TestVersioning(t *testing.T) {
 
 	msg := &jpbpb.Simple{}
 
-	err := s.Put(ctx, "test", "vers", "", msg)
+	_, err := s.Put(ctx, "test", "vers", "", msg)
 	if err != nil {
 		t.Fatalf("Want: no error, got %v", err)
 	}
@@ -65,12 +65,12 @@ func TestVersioning(t *testing.T) {
 		t.Fatalf("Want: no error, got %v", err)
 	}
 
-	err = s.Put(ctx, "test", "vers", "", msg)
+	_, err = s.Put(ctx, "test", "vers", "", msg)
 	if !storage.IsConflictErr(err) {
 		t.Errorf("Want: conflict error, got %v", err)
 	}
 
-	err = s.Put(ctx, "test", "vers", vers, msg)
+	_, err = s.Put(ctx, "test", "vers", vers, msg)
 	if err != nil {
 		t.Fatalf("Want: no error, got %v", err)
 	}
@@ -84,7 +84,7 @@ func TestExpiry(t *testing.T) {
 
 	msg := &jpbpb.Simple{}
 
-	err := s.PutWithExpiry(ctx, "test", "exp", "", msg, time.Now().Add(1*time.Minute))
+	_, err := s.PutWithExpiry(ctx, "test", "exp", "", msg, time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("Want: no error, got %v", err)
 	}
@@ -110,7 +110,7 @@ func TestList(t *testing.T) {
 	msg := &jpbpb.Simple{}
 
 	for i := 0; i < 10; i++ {
-		if err := s.Put(ctx, "testlist", fmt.Sprintf("item-%d", i), "", msg); err != nil {
+		if _, err := s.Put(ctx, "testlist", fmt.Sprintf("item-%d", i), "", msg); err != nil {
 			t.Fatal(err)
 		}
 	}

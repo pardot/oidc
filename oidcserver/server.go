@@ -14,6 +14,7 @@ import (
 	"github.com/felixge/httpsnoop"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/heroku/deci/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/square/go-jose.v2"
@@ -39,8 +40,19 @@ type Signer interface {
 // ClientSource can be queried to get information about an oauth2 client.
 type ClientSource interface {
 	// GetClient returns information about the given client ID. It will be
-	// called for each lookup.
+	// called for each lookup. If the client is not found but no other error
+	// occurred, an ErrNoSuchClient should be returned
 	GetClient(id string) (*Client, error)
+}
+
+// ErrNoSuchClient indicates that the requested client does not exist
+type ErrNoSuchClient interface {
+	NoSuchClient()
+}
+
+func isNoSuchClientErr(err error) bool {
+	_, ok := err.(ErrNoSuchClient)
+	return ok
 }
 
 // Client represents an OAuth2 client.
@@ -79,7 +91,7 @@ type Config struct {
 	Issuer string
 
 	// The backing persistence layer.
-	Storage Storage
+	Storage storage.Storage
 
 	// Valid values are "code" to enable the code flow and "token" to enable the implicit
 	// flow. If no response types are supplied this value defaults to "code".
@@ -151,7 +163,7 @@ type Server struct {
 
 	clients ClientSource
 
-	storage Storage
+	storage storage.Storage
 
 	mux http.Handler
 
@@ -177,7 +189,7 @@ func NewServer(ctx context.Context, c Config) (*Server, error) {
 	return newServer(ctx, c)
 }
 
-func newServer(ctx context.Context, c Config) (*Server, error) {
+func newServer(_ context.Context, c Config) (*Server, error) {
 	issuerURL, err := url.Parse(c.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
@@ -295,7 +307,6 @@ func newServer(ctx context.Context, c Config) (*Server, error) {
 	// "authproxy" connector.
 	handleFunc("/callback/{connector}", s.handleConnectorCallback)
 	handleFunc("/approval", s.handleApproval)
-	handle("/healthz", s.newHealthChecker(ctx))
 	handlePrefix("/static", static)
 	handlePrefix("/theme", theme)
 	s.mux = r

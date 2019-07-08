@@ -143,30 +143,661 @@ func (m *VerificationKey) GetExpiry() *timestamp.Timestamp {
 	return nil
 }
 
+// Claims represents the ID Token claims supported by the server.
+type Claims struct {
+	UserId               string   `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username             string   `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Email                string   `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	EmailVerified        bool     `protobuf:"varint,4,opt,name=email_verified,json=emailVerified,proto3" json:"email_verified,omitempty"`
+	Groups               []string `protobuf:"bytes,5,rep,name=groups,proto3" json:"groups,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Claims) Reset()         { *m = Claims{} }
+func (m *Claims) String() string { return proto.CompactTextString(m) }
+func (*Claims) ProtoMessage()    {}
+func (*Claims) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{2}
+}
+
+func (m *Claims) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Claims.Unmarshal(m, b)
+}
+func (m *Claims) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Claims.Marshal(b, m, deterministic)
+}
+func (m *Claims) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Claims.Merge(m, src)
+}
+func (m *Claims) XXX_Size() int {
+	return xxx_messageInfo_Claims.Size(m)
+}
+func (m *Claims) XXX_DiscardUnknown() {
+	xxx_messageInfo_Claims.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Claims proto.InternalMessageInfo
+
+func (m *Claims) GetUserId() string {
+	if m != nil {
+		return m.UserId
+	}
+	return ""
+}
+
+func (m *Claims) GetUsername() string {
+	if m != nil {
+		return m.Username
+	}
+	return ""
+}
+
+func (m *Claims) GetEmail() string {
+	if m != nil {
+		return m.Email
+	}
+	return ""
+}
+
+func (m *Claims) GetEmailVerified() bool {
+	if m != nil {
+		return m.EmailVerified
+	}
+	return false
+}
+
+func (m *Claims) GetGroups() []string {
+	if m != nil {
+		return m.Groups
+	}
+	return nil
+}
+
+type AuthRequest struct {
+	// ID used to identify the authorization request.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// ID of the client requesting authorization from a user.
+	ClientId string `protobuf:"bytes,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// Values parsed from the initial request. These describe the resources the
+	// client is
+	// requesting as well as values describing the form of the response.
+	ResponseTypes []string `protobuf:"bytes,3,rep,name=response_types,json=responseTypes,proto3" json:"response_types,omitempty"`
+	Scopes        []string `protobuf:"bytes,4,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	RedirectUri   string   `protobuf:"bytes,5,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	Nonce         string   `protobuf:"bytes,6,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	State         string   `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	// The client has indicated that the end user must be shown an approval prompt
+	// on all requests. The server cannot cache their initial action for
+	// subsequent attempts.
+	ForceApprovalPrompt bool                 `protobuf:"varint,8,opt,name=force_approval_prompt,json=forceApprovalPrompt,proto3" json:"force_approval_prompt,omitempty"`
+	Expiry              *timestamp.Timestamp `protobuf:"bytes,9,opt,name=expiry,proto3" json:"expiry,omitempty"`
+	// Has the user proved their identity through a backing identity provider?
+	//
+	// If false, the following fields are invalid.
+	LoggedIn bool `protobuf:"varint,10,opt,name=loggedIn,proto3" json:"loggedIn,omitempty"`
+	// The identity of the end user. Generally nil until the user authenticates
+	// with a backend.
+	Claims *Claims `protobuf:"bytes,11,opt,name=claims,proto3" json:"claims,omitempty"`
+	// The connector used to login the user and any data the connector wishes to
+	// persists. Set when the user authenticates.
+	ConnectorId string `protobuf:"bytes,12,opt,name=connector_id,json=connectorId,proto3" json:"connector_id,omitempty"`
+	// arbitrary connector data. Usually JSON blob
+	ConnectorData        []byte   `protobuf:"bytes,13,opt,name=connector_data,json=connectorData,proto3" json:"connector_data,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *AuthRequest) Reset()         { *m = AuthRequest{} }
+func (m *AuthRequest) String() string { return proto.CompactTextString(m) }
+func (*AuthRequest) ProtoMessage()    {}
+func (*AuthRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{3}
+}
+
+func (m *AuthRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AuthRequest.Unmarshal(m, b)
+}
+func (m *AuthRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AuthRequest.Marshal(b, m, deterministic)
+}
+func (m *AuthRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AuthRequest.Merge(m, src)
+}
+func (m *AuthRequest) XXX_Size() int {
+	return xxx_messageInfo_AuthRequest.Size(m)
+}
+func (m *AuthRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_AuthRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AuthRequest proto.InternalMessageInfo
+
+func (m *AuthRequest) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetClientId() string {
+	if m != nil {
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetResponseTypes() []string {
+	if m != nil {
+		return m.ResponseTypes
+	}
+	return nil
+}
+
+func (m *AuthRequest) GetScopes() []string {
+	if m != nil {
+		return m.Scopes
+	}
+	return nil
+}
+
+func (m *AuthRequest) GetRedirectUri() string {
+	if m != nil {
+		return m.RedirectUri
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetNonce() string {
+	if m != nil {
+		return m.Nonce
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetState() string {
+	if m != nil {
+		return m.State
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetForceApprovalPrompt() bool {
+	if m != nil {
+		return m.ForceApprovalPrompt
+	}
+	return false
+}
+
+func (m *AuthRequest) GetExpiry() *timestamp.Timestamp {
+	if m != nil {
+		return m.Expiry
+	}
+	return nil
+}
+
+func (m *AuthRequest) GetLoggedIn() bool {
+	if m != nil {
+		return m.LoggedIn
+	}
+	return false
+}
+
+func (m *AuthRequest) GetClaims() *Claims {
+	if m != nil {
+		return m.Claims
+	}
+	return nil
+}
+
+func (m *AuthRequest) GetConnectorId() string {
+	if m != nil {
+		return m.ConnectorId
+	}
+	return ""
+}
+
+func (m *AuthRequest) GetConnectorData() []byte {
+	if m != nil {
+		return m.ConnectorData
+	}
+	return nil
+}
+
+// AuthCode represents a code which can be exchanged for an OAuth2 token
+// response.
+//
+// This value is created once an end user has authorized a client, the server
+// has redirect the end user back to the client, but the client hasn't exchanged
+// the code for an access_token and id_token.
+type AuthCode struct {
+	// Actual string returned as the "code" value.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The client this code value is valid for. When exchanging the code for a
+	// token response, the client must use its client_secret to authenticate.
+	ClientId string `protobuf:"bytes,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// As part of the OAuth2 spec when a client makes a token request it MUST
+	// present the same redirect_uri as the initial redirect. This values is saved
+	// to make this check.
+	//
+	// https://tools.ietf.org/html/rfc6749#section-4.1.3
+	RedirectUri string `protobuf:"bytes,3,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	// If provided by the client in the initial request, the provider MUST create
+	// a ID Token with this nonce in the JWT payload.
+	Nonce string `protobuf:"bytes,4,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	// Scopes authorized by the end user for the client.
+	Scopes []string `protobuf:"bytes,5,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	// Authentication data provided by an upstream source.
+	ConnectorId          string               `protobuf:"bytes,6,opt,name=connector_id,json=connectorId,proto3" json:"connector_id,omitempty"`
+	ConnectorData        []byte               `protobuf:"bytes,7,opt,name=connector_data,json=connectorData,proto3" json:"connector_data,omitempty"`
+	Claims               *Claims              `protobuf:"bytes,8,opt,name=claims,proto3" json:"claims,omitempty"`
+	Expiry               *timestamp.Timestamp `protobuf:"bytes,9,opt,name=expiry,proto3" json:"expiry,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *AuthCode) Reset()         { *m = AuthCode{} }
+func (m *AuthCode) String() string { return proto.CompactTextString(m) }
+func (*AuthCode) ProtoMessage()    {}
+func (*AuthCode) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{4}
+}
+
+func (m *AuthCode) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_AuthCode.Unmarshal(m, b)
+}
+func (m *AuthCode) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_AuthCode.Marshal(b, m, deterministic)
+}
+func (m *AuthCode) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AuthCode.Merge(m, src)
+}
+func (m *AuthCode) XXX_Size() int {
+	return xxx_messageInfo_AuthCode.Size(m)
+}
+func (m *AuthCode) XXX_DiscardUnknown() {
+	xxx_messageInfo_AuthCode.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_AuthCode proto.InternalMessageInfo
+
+func (m *AuthCode) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
+}
+
+func (m *AuthCode) GetClientId() string {
+	if m != nil {
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *AuthCode) GetRedirectUri() string {
+	if m != nil {
+		return m.RedirectUri
+	}
+	return ""
+}
+
+func (m *AuthCode) GetNonce() string {
+	if m != nil {
+		return m.Nonce
+	}
+	return ""
+}
+
+func (m *AuthCode) GetScopes() []string {
+	if m != nil {
+		return m.Scopes
+	}
+	return nil
+}
+
+func (m *AuthCode) GetConnectorId() string {
+	if m != nil {
+		return m.ConnectorId
+	}
+	return ""
+}
+
+func (m *AuthCode) GetConnectorData() []byte {
+	if m != nil {
+		return m.ConnectorData
+	}
+	return nil
+}
+
+func (m *AuthCode) GetClaims() *Claims {
+	if m != nil {
+		return m.Claims
+	}
+	return nil
+}
+
+func (m *AuthCode) GetExpiry() *timestamp.Timestamp {
+	if m != nil {
+		return m.Expiry
+	}
+	return nil
+}
+
+// RefreshToken is an OAuth2 refresh token which allows a client to request new
+// tokens on the end user's behalf.
+type RefreshToken struct {
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// A single token that's rotated every time the refresh token is refreshed.
+	//
+	// May be empty.
+	Token     string               `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	CreatedAt *timestamp.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastUsed  *timestamp.Timestamp `protobuf:"bytes,4,opt,name=last_used,json=lastUsed,proto3" json:"last_used,omitempty"`
+	// Client this refresh token is valid for.
+	ClientId string `protobuf:"bytes,5,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	// Authentication data provided by an upstream source.
+	ConnectorId   string  `protobuf:"bytes,6,opt,name=connector_id,json=connectorId,proto3" json:"connector_id,omitempty"`
+	ConnectorData []byte  `protobuf:"bytes,7,opt,name=connector_data,json=connectorData,proto3" json:"connector_data,omitempty"`
+	Claims        *Claims `protobuf:"bytes,8,opt,name=claims,proto3" json:"claims,omitempty"`
+	// Scopes present in the initial request. Refresh requests may specify a set
+	// of scopes different from the initial request when refreshing a token,
+	// however those scopes must be encompassed by this set.
+	Scopes []string `protobuf:"bytes,9,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	// Nonce value supplied during the initial redirect. This is required to be
+	// part of the claims of any future id_token generated by the client.
+	Nonce                string   `protobuf:"bytes,10,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *RefreshToken) Reset()         { *m = RefreshToken{} }
+func (m *RefreshToken) String() string { return proto.CompactTextString(m) }
+func (*RefreshToken) ProtoMessage()    {}
+func (*RefreshToken) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{5}
+}
+
+func (m *RefreshToken) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RefreshToken.Unmarshal(m, b)
+}
+func (m *RefreshToken) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RefreshToken.Marshal(b, m, deterministic)
+}
+func (m *RefreshToken) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RefreshToken.Merge(m, src)
+}
+func (m *RefreshToken) XXX_Size() int {
+	return xxx_messageInfo_RefreshToken.Size(m)
+}
+func (m *RefreshToken) XXX_DiscardUnknown() {
+	xxx_messageInfo_RefreshToken.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RefreshToken proto.InternalMessageInfo
+
+func (m *RefreshToken) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
+}
+
+func (m *RefreshToken) GetToken() string {
+	if m != nil {
+		return m.Token
+	}
+	return ""
+}
+
+func (m *RefreshToken) GetCreatedAt() *timestamp.Timestamp {
+	if m != nil {
+		return m.CreatedAt
+	}
+	return nil
+}
+
+func (m *RefreshToken) GetLastUsed() *timestamp.Timestamp {
+	if m != nil {
+		return m.LastUsed
+	}
+	return nil
+}
+
+func (m *RefreshToken) GetClientId() string {
+	if m != nil {
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *RefreshToken) GetConnectorId() string {
+	if m != nil {
+		return m.ConnectorId
+	}
+	return ""
+}
+
+func (m *RefreshToken) GetConnectorData() []byte {
+	if m != nil {
+		return m.ConnectorData
+	}
+	return nil
+}
+
+func (m *RefreshToken) GetClaims() *Claims {
+	if m != nil {
+		return m.Claims
+	}
+	return nil
+}
+
+func (m *RefreshToken) GetScopes() []string {
+	if m != nil {
+		return m.Scopes
+	}
+	return nil
+}
+
+func (m *RefreshToken) GetNonce() string {
+	if m != nil {
+		return m.Nonce
+	}
+	return ""
+}
+
+type RefreshTokenRef struct {
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Client the refresh token is valid for.
+	ClientId             string               `protobuf:"bytes,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	CreatedAt            *timestamp.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastUsed             *timestamp.Timestamp `protobuf:"bytes,4,opt,name=last_used,json=lastUsed,proto3" json:"last_used,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *RefreshTokenRef) Reset()         { *m = RefreshTokenRef{} }
+func (m *RefreshTokenRef) String() string { return proto.CompactTextString(m) }
+func (*RefreshTokenRef) ProtoMessage()    {}
+func (*RefreshTokenRef) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{6}
+}
+
+func (m *RefreshTokenRef) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RefreshTokenRef.Unmarshal(m, b)
+}
+func (m *RefreshTokenRef) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RefreshTokenRef.Marshal(b, m, deterministic)
+}
+func (m *RefreshTokenRef) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RefreshTokenRef.Merge(m, src)
+}
+func (m *RefreshTokenRef) XXX_Size() int {
+	return xxx_messageInfo_RefreshTokenRef.Size(m)
+}
+func (m *RefreshTokenRef) XXX_DiscardUnknown() {
+	xxx_messageInfo_RefreshTokenRef.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RefreshTokenRef proto.InternalMessageInfo
+
+func (m *RefreshTokenRef) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
+}
+
+func (m *RefreshTokenRef) GetClientId() string {
+	if m != nil {
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *RefreshTokenRef) GetCreatedAt() *timestamp.Timestamp {
+	if m != nil {
+		return m.CreatedAt
+	}
+	return nil
+}
+
+func (m *RefreshTokenRef) GetLastUsed() *timestamp.Timestamp {
+	if m != nil {
+		return m.LastUsed
+	}
+	return nil
+}
+
+// OfflineSessions objects are sessions pertaining to users with refresh tokens.
+type OfflineSessions struct {
+	// UserID of an end user who has logged in to the server.
+	UserId string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// The ID of the connector used to login the user.
+	ConnId string `protobuf:"bytes,2,opt,name=conn_id,json=connId,proto3" json:"conn_id,omitempty"`
+	// Refresh is a hash table of refresh token reference objects
+	// indexed by the ClientID of the refresh token.
+	Refresh              map[string]*RefreshTokenRef `protobuf:"bytes,3,rep,name=refresh,proto3" json:"refresh,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
+	XXX_unrecognized     []byte                      `json:"-"`
+	XXX_sizecache        int32                       `json:"-"`
+}
+
+func (m *OfflineSessions) Reset()         { *m = OfflineSessions{} }
+func (m *OfflineSessions) String() string { return proto.CompactTextString(m) }
+func (*OfflineSessions) ProtoMessage()    {}
+func (*OfflineSessions) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{7}
+}
+
+func (m *OfflineSessions) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_OfflineSessions.Unmarshal(m, b)
+}
+func (m *OfflineSessions) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_OfflineSessions.Marshal(b, m, deterministic)
+}
+func (m *OfflineSessions) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_OfflineSessions.Merge(m, src)
+}
+func (m *OfflineSessions) XXX_Size() int {
+	return xxx_messageInfo_OfflineSessions.Size(m)
+}
+func (m *OfflineSessions) XXX_DiscardUnknown() {
+	xxx_messageInfo_OfflineSessions.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_OfflineSessions proto.InternalMessageInfo
+
+func (m *OfflineSessions) GetUserId() string {
+	if m != nil {
+		return m.UserId
+	}
+	return ""
+}
+
+func (m *OfflineSessions) GetConnId() string {
+	if m != nil {
+		return m.ConnId
+	}
+	return ""
+}
+
+func (m *OfflineSessions) GetRefresh() map[string]*RefreshTokenRef {
+	if m != nil {
+		return m.Refresh
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*Keys)(nil), "deci.storage.v1beta1.Keys")
 	proto.RegisterType((*VerificationKey)(nil), "deci.storage.v1beta1.VerificationKey")
+	proto.RegisterType((*Claims)(nil), "deci.storage.v1beta1.Claims")
+	proto.RegisterType((*AuthRequest)(nil), "deci.storage.v1beta1.AuthRequest")
+	proto.RegisterType((*AuthCode)(nil), "deci.storage.v1beta1.AuthCode")
+	proto.RegisterType((*RefreshToken)(nil), "deci.storage.v1beta1.RefreshToken")
+	proto.RegisterType((*RefreshTokenRef)(nil), "deci.storage.v1beta1.RefreshTokenRef")
+	proto.RegisterType((*OfflineSessions)(nil), "deci.storage.v1beta1.OfflineSessions")
+	proto.RegisterMapType((map[string]*RefreshTokenRef)(nil), "deci.storage.v1beta1.OfflineSessions.RefreshEntry")
 }
 
 func init() { proto.RegisterFile("storage.proto", fileDescriptor_0d2c4ccf1453ffdb) }
 
 var fileDescriptor_0d2c4ccf1453ffdb = []byte{
-	// 259 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x8f, 0x4f, 0x4b, 0xc3, 0x30,
-	0x18, 0x87, 0xa9, 0x1b, 0x13, 0xdf, 0x59, 0x86, 0xc1, 0x43, 0xd9, 0xc1, 0x95, 0x81, 0xd2, 0x53,
-	0xc6, 0xea, 0x17, 0x10, 0xaf, 0xbd, 0x48, 0x27, 0x1e, 0xbc, 0x94, 0xa6, 0xbe, 0x0b, 0xc1, 0xad,
-	0x09, 0x49, 0x3a, 0x96, 0x2f, 0xec, 0xe7, 0x90, 0xa5, 0x2d, 0xd6, 0x3f, 0x78, 0x7d, 0x78, 0x5e,
-	0x7e, 0xef, 0x03, 0xa1, 0xb1, 0x52, 0x97, 0x1c, 0xa9, 0xd2, 0xd2, 0x4a, 0x72, 0xfd, 0x86, 0x95,
-	0xa0, 0x3d, 0x3b, 0xac, 0x19, 0xda, 0x72, 0x3d, 0x5f, 0x70, 0x29, 0xf9, 0x0e, 0x57, 0xde, 0x61,
-	0xcd, 0x76, 0x65, 0xc5, 0x1e, 0x8d, 0x2d, 0xf7, 0xaa, 0x3d, 0x5b, 0x7e, 0x04, 0x30, 0xce, 0xd0,
-	0x19, 0xb2, 0x00, 0xd8, 0x08, 0x5e, 0x8b, 0x9a, 0x67, 0xe8, 0xa2, 0x20, 0x0e, 0x92, 0xcb, 0x7c,
-	0x6a, 0x5a, 0x52, 0xbc, 0xa3, 0x23, 0x77, 0x10, 0x7e, 0x09, 0x4f, 0x0d, 0x8b, 0xce, 0xbc, 0x33,
-	0x1b, 0x38, 0x85, 0x6a, 0x18, 0xd9, 0xc0, 0xd5, 0x01, 0xb5, 0xd8, 0x8a, 0xaa, 0xb4, 0x42, 0xd6,
-	0x27, 0x6e, 0xa2, 0x51, 0x3c, 0x4a, 0xa6, 0xe9, 0x2d, 0xfd, 0xeb, 0x49, 0xfa, 0x32, 0xd0, 0x33,
-	0x74, 0xf9, 0xef, 0x7b, 0xf2, 0x00, 0x61, 0x8d, 0x47, 0x5b, 0x68, 0x69, 0x3d, 0x8d, 0xc6, 0x71,
-	0x90, 0x4c, 0xd3, 0x39, 0x6d, 0xfb, 0x68, 0xdf, 0x47, 0x9f, 0xfb, 0xbe, 0xfc, 0xfb, 0xc1, 0x12,
-	0x61, 0xf6, 0x63, 0x87, 0xdc, 0x00, 0xa8, 0x86, 0xed, 0x44, 0x75, 0xda, 0xe8, 0x92, 0x07, 0x84,
-	0xa4, 0x30, 0xc1, 0xa3, 0x12, 0xda, 0xf9, 0xd4, 0xff, 0xd7, 0x3a, 0xf3, 0xf1, 0xe2, 0xf5, 0xbc,
-	0xcb, 0x63, 0x13, 0xaf, 0xdd, 0x7f, 0x06, 0x00, 0x00, 0xff, 0xff, 0xec, 0xc1, 0x0b, 0xa9, 0xa9,
-	0x01, 0x00, 0x00,
+	// 791 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x55, 0xcd, 0x8e, 0xe3, 0x44,
+	0x10, 0x96, 0x93, 0x89, 0x13, 0x57, 0x26, 0x3b, 0xd0, 0x0c, 0xac, 0x35, 0x20, 0x36, 0x58, 0x5a,
+	0x34, 0x27, 0xaf, 0x36, 0x20, 0xf1, 0x77, 0x61, 0x58, 0x38, 0x44, 0x83, 0xc4, 0xca, 0x33, 0xbb,
+	0x07, 0x2e, 0x56, 0xc7, 0xae, 0x78, 0x5b, 0xeb, 0x74, 0x9b, 0xee, 0x76, 0xb4, 0x79, 0x0d, 0x1e,
+	0x85, 0x33, 0x8f, 0xc0, 0x73, 0xf0, 0x02, 0xf0, 0x00, 0xa8, 0xbb, 0x9d, 0xc4, 0x93, 0x09, 0xd1,
+	0xce, 0x5e, 0xe6, 0xe6, 0xfa, 0xaa, 0xba, 0xaa, 0xbf, 0xef, 0xab, 0xa4, 0x61, 0xa4, 0xb4, 0x90,
+	0xb4, 0xc0, 0xb8, 0x92, 0x42, 0x0b, 0x72, 0x9a, 0x63, 0xc6, 0xe2, 0x35, 0xb6, 0x7c, 0x3a, 0x43,
+	0x4d, 0x9f, 0x9e, 0x3d, 0x2a, 0x84, 0x28, 0x4a, 0x7c, 0x62, 0x6b, 0x66, 0xf5, 0xfc, 0x89, 0x66,
+	0x0b, 0x54, 0x9a, 0x2e, 0x2a, 0x77, 0x2c, 0xfa, 0xdb, 0x83, 0xa3, 0x4b, 0x5c, 0x29, 0xf2, 0x08,
+	0xe0, 0x8a, 0x15, 0x9c, 0xf1, 0xe2, 0x12, 0x57, 0xa1, 0x37, 0xf6, 0xce, 0x8f, 0x93, 0xa1, 0x72,
+	0x48, 0xfa, 0x1a, 0x57, 0xe4, 0x73, 0x18, 0x6d, 0x0b, 0x9e, 0xd7, 0xb3, 0xb0, 0x63, 0x6b, 0x4e,
+	0x5a, 0x35, 0x69, 0x55, 0xcf, 0xc8, 0x15, 0xbc, 0xbf, 0x44, 0xc9, 0xe6, 0x2c, 0xa3, 0x9a, 0x09,
+	0x6e, 0x70, 0x15, 0x76, 0xc7, 0xdd, 0xf3, 0xe1, 0xe4, 0x71, 0xbc, 0xef, 0x92, 0xf1, 0xcb, 0x56,
+	0xf9, 0x25, 0xae, 0x92, 0xdb, 0xe7, 0xc9, 0xf7, 0x30, 0xe2, 0xf8, 0x46, 0xa7, 0x52, 0x68, 0x8b,
+	0x86, 0x47, 0x63, 0xef, 0x7c, 0x38, 0x39, 0x8b, 0x1d, 0xbf, 0x78, 0xcd, 0x2f, 0xbe, 0x5e, 0xf3,
+	0x4b, 0x6e, 0x1e, 0x88, 0x10, 0x4e, 0x76, 0xe6, 0x90, 0x4f, 0x01, 0xaa, 0x7a, 0x56, 0xb2, 0xcc,
+	0xcc, 0x68, 0x28, 0xb7, 0x10, 0x32, 0x01, 0x1f, 0xdf, 0x54, 0x4c, 0xae, 0x2c, 0xd5, 0xc3, 0xd3,
+	0x9a, 0xca, 0xe8, 0x77, 0x0f, 0xfc, 0x67, 0x25, 0x65, 0x0b, 0x45, 0x1e, 0x42, 0xbf, 0x56, 0x28,
+	0x53, 0x96, 0xdb, 0xde, 0x41, 0xe2, 0x9b, 0x70, 0x9a, 0x93, 0x33, 0x18, 0x98, 0x2f, 0x4e, 0x17,
+	0x68, 0x3b, 0x07, 0xc9, 0x26, 0x26, 0xa7, 0xd0, 0xc3, 0x05, 0x65, 0x65, 0xd8, 0xb5, 0x09, 0x17,
+	0x90, 0xc7, 0xf0, 0xc0, 0x7e, 0xa4, 0x4e, 0x19, 0xcc, 0x2d, 0xff, 0x41, 0x32, 0xb2, 0xe8, 0xcb,
+	0x06, 0x24, 0x1f, 0x81, 0x5f, 0x48, 0x51, 0x57, 0x2a, 0xec, 0x8d, 0xbb, 0x66, 0xa0, 0x8b, 0xa2,
+	0xbf, 0xba, 0x30, 0xbc, 0xa8, 0xf5, 0xab, 0x04, 0x7f, 0xab, 0x51, 0x69, 0xf2, 0x00, 0x3a, 0x9b,
+	0x4b, 0x75, 0x58, 0x4e, 0x3e, 0x86, 0x20, 0x2b, 0x19, 0x72, 0x6d, 0xee, 0xda, 0xdc, 0xc8, 0x01,
+	0xd3, 0xdc, 0xcc, 0x96, 0xa8, 0x2a, 0xc1, 0x15, 0xa6, 0x7a, 0x55, 0xa1, 0x33, 0x33, 0x48, 0x46,
+	0x6b, 0xf4, 0xda, 0x80, 0x66, 0xb6, 0xca, 0x84, 0x49, 0x1f, 0xb9, 0xd9, 0x2e, 0x22, 0x9f, 0xc1,
+	0xb1, 0xc4, 0x9c, 0x49, 0xcc, 0x74, 0x5a, 0x4b, 0x16, 0xf6, 0x6c, 0xfb, 0xe1, 0x1a, 0x7b, 0x21,
+	0x99, 0xe1, 0xcc, 0x05, 0xcf, 0x30, 0xf4, 0x1d, 0x67, 0x1b, 0x18, 0x54, 0x69, 0xaa, 0x31, 0xec,
+	0x3b, 0xd4, 0x06, 0x64, 0x02, 0x1f, 0xce, 0x85, 0xcc, 0x30, 0xa5, 0x55, 0x25, 0xc5, 0x92, 0x96,
+	0x69, 0x25, 0xc5, 0xa2, 0xd2, 0xe1, 0xc0, 0x0a, 0xf2, 0x81, 0x4d, 0x5e, 0x34, 0xb9, 0xe7, 0x36,
+	0xd5, 0xf2, 0x31, 0x78, 0x5b, 0x1f, 0x8d, 0x47, 0xa5, 0x28, 0x0a, 0xcc, 0xa7, 0x3c, 0x04, 0xdb,
+	0x7a, 0x13, 0x93, 0x2f, 0xc1, 0xcf, 0xac, 0xc5, 0xe1, 0xd0, 0xf6, 0xfb, 0x64, 0xff, 0x5a, 0xbb,
+	0x35, 0x48, 0x9a, 0x5a, 0x23, 0x44, 0x26, 0x38, 0xc7, 0x4c, 0x0b, 0xbb, 0x13, 0xc7, 0x4e, 0x88,
+	0x0d, 0xe6, 0xa4, 0xde, 0x96, 0xe4, 0x54, 0xd3, 0x70, 0x64, 0x97, 0x72, 0xb4, 0x41, 0x7f, 0xa4,
+	0x9a, 0x46, 0x7f, 0x76, 0x60, 0x60, 0xec, 0x7c, 0x26, 0x72, 0xbc, 0x9b, 0x97, 0xbb, 0x66, 0x74,
+	0x0f, 0x98, 0x71, 0xd4, 0x36, 0x63, 0xeb, 0x6e, 0x6f, 0xd7, 0xdd, 0x1b, 0xa4, 0xfc, 0xb7, 0x21,
+	0xd5, 0xdf, 0x43, 0xaa, 0x25, 0xea, 0xe0, 0x0e, 0xa2, 0xbe, 0x83, 0xb5, 0xd1, 0x3f, 0x1d, 0x38,
+	0x4e, 0x70, 0x2e, 0x51, 0xbd, 0xba, 0x16, 0xaf, 0x91, 0xdf, 0x92, 0xf0, 0x14, 0x7a, 0xda, 0x24,
+	0x1a, 0xf9, 0x5c, 0x40, 0xbe, 0x01, 0xc8, 0x24, 0x52, 0x8d, 0x79, 0x4a, 0xb5, 0x55, 0xee, 0xf0,
+	0xb8, 0xa0, 0xa9, 0xbe, 0xd0, 0xe4, 0x2b, 0x08, 0x4a, 0xaa, 0x74, 0x5a, 0xab, 0xe6, 0x97, 0x7b,
+	0xf8, 0xe4, 0xc0, 0x14, 0xbf, 0x50, 0xb8, 0x63, 0x66, 0xef, 0xb6, 0x99, 0xf7, 0xaa, 0xfd, 0x76,
+	0x27, 0x82, 0x1b, 0x3b, 0xb1, 0xd9, 0x20, 0x68, 0x6d, 0x50, 0xf4, 0x87, 0x07, 0x27, 0x6d, 0xd5,
+	0x13, 0x9c, 0xdf, 0x6d, 0x77, 0xef, 0x41, 0xff, 0xe8, 0x5f, 0x0f, 0x4e, 0x7e, 0x99, 0xcf, 0x4b,
+	0xc6, 0xf1, 0x0a, 0x95, 0x62, 0x82, 0x1f, 0xf8, 0x5b, 0x7f, 0x08, 0x7d, 0x23, 0xeb, 0xf6, 0xee,
+	0xbe, 0x09, 0xa7, 0x39, 0xf9, 0x19, 0xfa, 0xd2, 0x31, 0x6f, 0xde, 0xc1, 0xc9, 0x7e, 0x7d, 0x77,
+	0x26, 0xc5, 0x8d, 0x5c, 0x3f, 0x71, 0x2d, 0x57, 0xc9, 0xba, 0xc5, 0x19, 0xdd, 0x6c, 0xaf, 0x4d,
+	0x90, 0xf7, 0xa0, 0xbb, 0x7e, 0xbe, 0x82, 0xc4, 0x7c, 0x92, 0xef, 0xa0, 0xb7, 0xa4, 0x65, 0x8d,
+	0xcd, 0xb3, 0xf5, 0x3f, 0xaf, 0xee, 0x8e, 0x19, 0x89, 0x3b, 0xf3, 0x6d, 0xe7, 0x6b, 0xef, 0x87,
+	0xe0, 0xd7, 0x7e, 0x53, 0x3d, 0xf3, 0xad, 0x3e, 0x5f, 0xfc, 0x17, 0x00, 0x00, 0xff, 0xff, 0x68,
+	0xc7, 0x6f, 0x68, 0x6e, 0x08, 0x00, 0x00,
 }

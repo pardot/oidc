@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	jose "gopkg.in/square/go-jose.v2"
-
 	"github.com/heroku/deci/oidcserver/internal"
+	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	jose "gopkg.in/square/go-jose.v2"
 )
 
 // TODO(ericchiang): clean this file up and figure out more idiomatic error handling.
@@ -214,17 +214,17 @@ type federatedIDClaims struct {
 	UserID      string `json:"user_id,omitempty"`
 }
 
-func (s *Server) newAccessToken(clientID string, claims Claims, scopes []string, nonce, connID string) (accessToken string, err error) {
+func (s *Server) newAccessToken(clientID string, claims *storagepb.Claims, scopes []string, nonce, connID string) (accessToken string, err error) {
 	idToken, _, err := s.newIDToken(clientID, claims, scopes, nonce, NewID(), connID)
 	return idToken, err
 }
 
-func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, nonce, accessToken, connID string) (idToken string, expiry time.Time, err error) {
+func (s *Server) newIDToken(clientID string, claims *storagepb.Claims, scopes []string, nonce, accessToken, connID string) (idToken string, expiry time.Time, err error) {
 	issuedAt := s.now()
 	expiry = issuedAt.Add(s.idTokensValidFor)
 
 	sub := &internal.IDTokenSubject{
-		UserId: claims.UserID,
+		UserId: claims.UserId,
 		ConnId: connID,
 	}
 
@@ -268,7 +268,7 @@ func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, non
 		case scope == scopeFederatedID:
 			tok.FederatedIDClaims = &federatedIDClaims{
 				ConnectorID: connID,
-				UserID:      claims.UserID,
+				UserID:      claims.UserId,
 			}
 		default:
 			peerID, ok := parseCrossClientScope(scope)
@@ -317,7 +317,7 @@ func (s *Server) newIDToken(clientID string, claims Claims, scopes []string, non
 }
 
 // parse the initial request from the OAuth2 client.
-func (s *Server) parseAuthorizationRequest(r *http.Request) (req AuthRequest, oauth2Err *authErr) {
+func (s *Server) parseAuthorizationRequest(r *http.Request) (req *storagepb.AuthRequest, oauth2Err *authErr) {
 	if err := r.ParseForm(); err != nil {
 		return req, &authErr{"", "", errInvalidRequest, "Failed to parse request body."}
 	}
@@ -336,7 +336,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req AuthRequest, oa
 
 	client, err := s.clients.GetClient(clientID)
 	if err != nil {
-		if err == ErrNotFound {
+		if isNoSuchClientErr(err) {
 			description := fmt.Sprintf("Invalid client_id (%q).", clientID)
 			return req, &authErr{"", "", errUnauthorizedClient, description}
 		}
@@ -439,14 +439,14 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req AuthRequest, oa
 		}
 	}
 
-	return AuthRequest{
-		ID:                  NewID(),
-		ClientID:            client.ID,
+	return &storagepb.AuthRequest{
+		Id:                  NewID(),
+		ClientId:            client.ID,
 		State:               state,
 		Nonce:               nonce,
 		ForceApprovalPrompt: q.Get("approval_prompt") == "force",
 		Scopes:              scopes,
-		RedirectURI:         redirectURI,
+		RedirectUri:         redirectURI,
 		ResponseTypes:       responseTypes,
 	}, nil
 }
@@ -464,7 +464,7 @@ func (s *Server) validateCrossClientTrust(clientID, peerID string) (trusted bool
 	}
 	peer, err := s.clients.GetClient(peerID)
 	if err != nil {
-		if err != ErrNotFound {
+		if !isNoSuchClientErr(err) {
 			s.logger.Errorf("Failed to get client: %v", err)
 			return false, err
 		}

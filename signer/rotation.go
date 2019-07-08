@@ -227,7 +227,7 @@ func (r *RotatingSigner) rotate() error {
 	keys.SigningKeyPub = pubb
 	keys.NextRotation = nextRotation
 
-	if err := r.storage.Put(context.TODO(), keysPrefix, keysKey, kver, keys); err != nil {
+	if _, err := r.storage.Put(context.TODO(), keysPrefix, keysKey, kver, keys); err != nil {
 		if storage.IsConflictErr(err) {
 			// Assume someone else updated, so roll with it
 			return nil

@@ -87,16 +87,17 @@ func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Messag
 	return vers, err
 }
 
-func (s *Storage) Put(ctx context.Context, keyspace, key, version string, obj proto.Message) error {
+func (s *Storage) Put(ctx context.Context, keyspace, key, version string, obj proto.Message) (newVersion string, err error) {
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, nil)
 }
 
-func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time) error {
+func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time)  (newVersion string, err error) {
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, &expires)
 }
 
-func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires *time.Time) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires *time.Time)  (newVersion string, err error) {
+	var nvers int64
+	err = s.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(keyspace))
 		var existing bool
 		var existvers int64
@@ -139,9 +140,9 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 		if err != nil {
 			return err
 		}
-		uv := existvers + 1
+		nvers := existvers + 1
 		r := &record{
-			Version: uv,
+			Version: nvers,
 			Data:    pb,
 			Expires: expires,
 		}
@@ -152,6 +153,10 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 
 		return b.Put([]byte(key), rb)
 	})
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(nvers, 10), nil
 }
 
 func (s *Storage) List(_ context.Context, keyspace string) ([]string, error) {
@@ -176,6 +181,9 @@ func (s *Storage) Delete(_ context.Context, keyspace, key string) error {
 		b := tx.Bucket([]byte(keyspace))
 		if b == nil {
 			return &errNotFound{fmt.Errorf("keyspace %s does not exist", keyspace)}
+		}
+		if b.Get([]byte(key)) == nil {
+			return &errNotFound{fmt.Errorf("Key %s/%s not found", keyspace, key)}
 		}
 		return b.Delete([]byte(key))
 	})

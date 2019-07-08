@@ -8,11 +8,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -21,6 +23,7 @@ import (
 
 	oidc "github.com/coreos/go-oidc"
 	"github.com/heroku/deci/signer"
+	"github.com/heroku/deci/storage/disk"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -80,9 +83,19 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 		server.ServeHTTP(w, r)
 	}))
 
+	tmpdir, err := ioutil.TempDir("", "oidcserver-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+	stor, err := disk.New(filepath.Join(tmpdir, "test.db"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	config := Config{
 		Issuer:  s.URL,
-		Storage: newMemoryStore(logger),
+		Storage: stor,
 		Web: WebConfig{
 			Dir: "../web",
 		},
@@ -94,7 +107,6 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 	}
 	s.URL = config.Issuer
 
-	var err error
 	if server, err = newServer(ctx, config); err != nil {
 		t.Fatal(err)
 	}
