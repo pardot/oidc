@@ -46,7 +46,6 @@ type Storage interface {
 
 	// TODO(ericchiang): Let the storages set the IDs of these objects.
 	CreateAuthRequest(a AuthRequest) error
-	CreateClient(c Client) error
 	CreateAuthCode(c AuthCode) error
 	CreateRefresh(r RefreshToken) error
 	CreatePassword(p Password) error
@@ -57,13 +56,11 @@ type Storage interface {
 	// requests that way instead of using ErrNotFound.
 	GetAuthRequest(id string) (AuthRequest, error)
 	GetAuthCode(id string) (AuthCode, error)
-	GetClient(id string) (Client, error)
 	GetRefresh(id string) (RefreshToken, error)
 	GetPassword(email string) (Password, error)
 	GetOfflineSessions(userID string, connID string) (OfflineSessions, error)
 	// GetConnector(id string) (Connector, error)
 
-	ListClients() ([]Client, error)
 	ListRefreshTokens() ([]RefreshToken, error)
 	ListPasswords() ([]Password, error)
 	// ListConnectors() ([]Connector, error)
@@ -91,7 +88,6 @@ type Storage interface {
 	//			// update failed, handle error
 	//		}
 	//
-	UpdateClient(id string, updater func(old Client) (Client, error)) error
 	UpdateAuthRequest(id string, updater func(a AuthRequest) (AuthRequest, error)) error
 	UpdateRefreshToken(id string, updater func(r RefreshToken) (RefreshToken, error)) error
 	UpdatePassword(email string, updater func(p Password) (Password, error)) error
@@ -100,35 +96,6 @@ type Storage interface {
 
 	// GarbageCollect deletes all expired AuthCodes and AuthRequests.
 	GarbageCollect(now time.Time) (GCResult, error)
-}
-
-// Client represents an OAuth2 client.
-//
-// For further reading see:
-//   * Trusted peers: https://developers.google.com/identity/protocols/CrossClientAuth
-//   * Public clients: https://developers.google.com/api-client-library/python/auth/installed-app
-type Client struct {
-	// Client ID and secret used to identify the client.
-	ID     string `json:"id" yaml:"id"`
-	Secret string `json:"secret" yaml:"secret"`
-
-	// A registered set of redirect URIs. When redirecting from dex to the client, the URI
-	// requested to redirect to MUST match one of these values, unless the client is "public".
-	RedirectURIs []string `json:"redirectURIs" yaml:"redirectURIs"`
-
-	// TrustedPeers are a list of peers which can issue tokens on this client's behalf using
-	// the dynamic "oauth2:server:client_id:(client_id)" scope. If a peer makes such a request,
-	// this client's ID will appear as the ID Token's audience.
-	//
-	// Clients inherently trust themselves.
-	TrustedPeers []string `json:"trustedPeers" yaml:"trustedPeers"`
-
-	// Public clients must use either use a redirectURL 127.0.0.1:X or "urn:ietf:wg:oauth:2.0:oob"
-	Public bool `json:"public" yaml:"public"`
-
-	// Name and LogoURL used when displaying this client to the end user.
-	Name    string `json:"name" yaml:"name"`
-	LogoURL string `json:"logoURL" yaml:"logoURL"`
 }
 
 // Claims represents the ID Token claims supported by the server.

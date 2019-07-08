@@ -334,7 +334,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req AuthRequest, oa
 	scopes := strings.Fields(q.Get("scope"))
 	responseTypes := strings.Fields(q.Get("response_type"))
 
-	client, err := s.storage.GetClient(clientID)
+	client, err := s.clients.GetClient(clientID)
 	if err != nil {
 		if err == ErrNotFound {
 			description := fmt.Sprintf("Invalid client_id (%q).", clientID)
@@ -462,7 +462,7 @@ func (s *Server) validateCrossClientTrust(clientID, peerID string) (trusted bool
 	if peerID == clientID {
 		return true, nil
 	}
-	peer, err := s.storage.GetClient(peerID)
+	peer, err := s.clients.GetClient(peerID)
 	if err != nil {
 		if err != ErrNotFound {
 			s.logger.Errorf("Failed to get client: %v", err)
@@ -478,7 +478,7 @@ func (s *Server) validateCrossClientTrust(clientID, peerID string) (trusted bool
 	return false, nil
 }
 
-func validateRedirectURI(client Client, redirectURI string) bool {
+func validateRedirectURI(client *Client, redirectURI string) bool {
 	if !client.Public {
 		for _, uri := range client.RedirectURIs {
 			if redirectURI == uri {

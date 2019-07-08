@@ -489,7 +489,7 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 			s.sendCodeResponse(w, r, authReq)
 			return
 		}
-		client, err := s.storage.GetClient(authReq.ClientID)
+		client, err := s.clients.GetClient(authReq.ClientID)
 		if err != nil {
 			s.logger.Errorf("Failed to get client %q: %v", authReq.ClientID, err)
 			s.renderError(w, http.StatusInternalServerError, "Failed to retrieve client.")
@@ -660,7 +660,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		clientSecret = r.PostFormValue("client_secret")
 	}
 
-	client, err := s.storage.GetClient(clientID)
+	client, err := s.clients.GetClient(clientID)
 	if err != nil {
 		if err != ErrNotFound {
 			s.logger.Errorf("failed to get client: %v", err)
@@ -687,7 +687,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // handle an access token request https://tools.ietf.org/html/rfc6749#section-4.1.3
-func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client Client) {
+func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *Client) {
 	code := r.PostFormValue("code")
 	redirectURI := r.PostFormValue("redirect_uri")
 
@@ -853,7 +853,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client C
 }
 
 // handle a refresh token request https://tools.ietf.org/html/rfc6749#section-6
-func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, client Client) {
+func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, client *Client) {
 	code := r.PostFormValue("refresh_token")
 	scope := r.PostFormValue("scope")
 	if code == "" {

@@ -516,8 +516,10 @@ func TestOAuth2CodeFlow(t *testing.T) {
 				Secret:       clientSecret,
 				RedirectURIs: []string{redirectURL},
 			}
-			if err := s.storage.CreateClient(client); err != nil {
-				t.Fatalf("failed to create client: %v", err)
+			s.clients = &simpleClientSource{
+				Clients: map[string]*Client{
+					clientID: &client,
+				},
 			}
 
 			// Create the OAuth2 config.
@@ -614,8 +616,10 @@ func TestOAuth2ImplicitFlow(t *testing.T) {
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
 	}
-	if err := s.storage.CreateClient(client); err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	s.clients = &simpleClientSource{
+		Clients: map[string]*Client{
+			client.ID: &client,
+		},
 	}
 
 	idTokenVerifier := p.Verifier(&oidc.Config{
@@ -771,8 +775,10 @@ func TestCrossClientScopes(t *testing.T) {
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
 	}
-	if err := s.storage.CreateClient(client); err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	scs := &simpleClientSource{
+		Clients: map[string]*Client{
+			client.ID: &client,
+		},
 	}
 
 	peer := Client{
@@ -780,10 +786,9 @@ func TestCrossClientScopes(t *testing.T) {
 		Secret:       "foobar",
 		TrustedPeers: []string{"testclient"},
 	}
+	scs.Clients[peer.ID] = &peer
 
-	if err := s.storage.CreateClient(peer); err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
+	s.clients = scs
 
 	oauth2Config = &oauth2.Config{
 		ClientID:     client.ID,
@@ -893,8 +898,10 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
 	}
-	if err := s.storage.CreateClient(client); err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	scs := &simpleClientSource{
+		Clients: map[string]*Client{
+			client.ID: &client,
+		},
 	}
 
 	peer := Client{
@@ -902,10 +909,9 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 		Secret:       "foobar",
 		TrustedPeers: []string{"testclient"},
 	}
+	scs.Clients[peer.ID] = &peer
 
-	if err := s.storage.CreateClient(peer); err != nil {
-		t.Fatalf("failed to create client: %v", err)
-	}
+	s.clients = scs
 
 	oauth2Config = &oauth2.Config{
 		ClientID:     client.ID,
@@ -1098,8 +1104,10 @@ func TestRefreshTokenFlow(t *testing.T) {
 		Secret:       "testclientsecret",
 		RedirectURIs: []string{redirectURL},
 	}
-	if err := s.storage.CreateClient(client); err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	s.clients = &simpleClientSource{
+		Clients: map[string]*Client{
+			client.ID: &client,
+		},
 	}
 
 	oauth2Client.config = &oauth2.Config{
@@ -1181,4 +1189,19 @@ func TestCheckCost(t *testing.T) {
 			}
 		})
 	}
+}
+
+type simpleClientSource struct {
+	Clients map[string]*Client
+}
+
+func (s *simpleClientSource) GetClient(id string) (*Client, error) {
+	if s.Clients == nil {
+		return nil, errors.New("Clients not initialized")
+	}
+	c, ok := s.Clients[id]
+	if !ok {
+		return nil, fmt.Errorf("Client %q not found", id)
+	}
+	return c, nil
 }

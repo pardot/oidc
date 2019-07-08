@@ -37,21 +37,40 @@ type Signer interface {
 	VerifySignature(ctx context.Context, jwt string) (payload []byte, err error)
 }
 
-type errNotFound interface {
-	NotFoundErr()
+// ClientSource can be queried to get information about an oauth2 client.
+type ClientSource interface {
+	// GetClient returns information about the given client ID. It will be
+	// called for each lookup.
+	GetClient(id string) (*Client, error)
 }
 
-// IsNotFoundErr checks to see if the passed error is because the item was not
-// found, as opposed to an actual error state. Errors comply to this if they
-// have an `NotFoundErr()` method, or are ErrIsNotFound
-func IsNotFoundErr(err error) bool {
-	if _, ok := err.(errNotFound); ok {
-		return true
-	}
-	if err == ErrNotFound {
-		return true
-	}
-	return false
+// Client represents an OAuth2 client.
+//
+// For further reading see:
+//   * Trusted peers: https://developers.google.com/identity/protocols/CrossClientAuth
+//   * Public clients: https://developers.google.com/api-client-library/python/auth/installed-app
+type Client struct {
+	// Client ID and secret used to identify the client.
+	ID     string `json:"id" yaml:"id"`
+	Secret string `json:"secret" yaml:"secret"`
+
+	// A registered set of redirect URIs. When redirecting from dex to the client, the URI
+	// requested to redirect to MUST match one of these values, unless the client is "public".
+	RedirectURIs []string `json:"redirectURIs" yaml:"redirectURIs"`
+
+	// TrustedPeers are a list of peers which can issue tokens on this client's behalf using
+	// the dynamic "oauth2:server:client_id:(client_id)" scope. If a peer makes such a request,
+	// this client's ID will appear as the ID Token's audience.
+	//
+	// Clients inherently trust themselves.
+	TrustedPeers []string `json:"trustedPeers" yaml:"trustedPeers"`
+
+	// Public clients must use either use a redirectURL 127.0.0.1:X or "urn:ietf:wg:oauth:2.0:oob"
+	Public bool `json:"public" yaml:"public"`
+
+	// Name and LogoURL used when displaying this client to the end user.
+	Name    string `json:"name" yaml:"name"`
+	LogoURL string `json:"logoURL" yaml:"logoURL"`
 }
 
 // Config holds the server's configuration options.
@@ -130,6 +149,8 @@ type Server struct {
 
 	// Map of connector IDs to connectors.
 	connectors map[string]Connector
+
+	clients ClientSource
 
 	storage Storage
 

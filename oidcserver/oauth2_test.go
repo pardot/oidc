@@ -150,9 +150,17 @@ func TestParseAuthorizationRequest(t *testing.T) {
 
 			httpServer, server := newTestServer(ctx, t, func(c *Config) {
 				c.SupportedResponseTypes = tc.supportedResponseTypes
-				c.Storage = WithStaticClients(c.Storage, tc.clients)
 			})
 			defer httpServer.Close()
+
+			scs := &simpleClientSource{
+				Clients: map[string]*Client{},
+			}
+			for _, c := range tc.clients {
+				scs.Clients[c.ID] = &c
+			}
+
+			server.clients = scs
 
 			params := url.Values{}
 			for k, v := range tc.queryParams {
@@ -252,7 +260,7 @@ func TestValidRedirectURI(t *testing.T) {
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("Case %d", i), func(t *testing.T) {
-			got := validateRedirectURI(test.client, test.redirectURI)
+			got := validateRedirectURI(&test.client, test.redirectURI)
 			if got != test.wantValid {
 				t.Errorf("client=%#v, redirectURI=%q, wanted valid=%t, got=%t",
 					test.client, test.redirectURI, test.wantValid, got)
