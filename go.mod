@@ -8,7 +8,9 @@ require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/felixge/httpsnoop v1.0.0
 	github.com/ghodss/yaml v1.0.0
-	github.com/golang/protobuf v1.2.0
+	github.com/gogo/protobuf v1.2.0 // indirect
+	github.com/golang/mock v1.1.1 // indirect
+	github.com/golang/protobuf v1.3.1
 	github.com/golangci/golangci-lint v1.17.1
 	github.com/gorilla/handlers v1.4.0
 	github.com/gorilla/mux v0.0.0-20180903154305-9e1f5955c0d2
@@ -29,6 +31,7 @@ require (
 	github.com/spf13/pflag v1.0.3 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
 	github.com/ugorji/go/codec v1.1.5-pre
+	go.etcd.io/bbolt v1.3.3
 	golang.org/x/crypto v0.0.0-20190313024323-a1f597ede03a
 	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
 	google.golang.org/appengine v1.2.0 // indirect
