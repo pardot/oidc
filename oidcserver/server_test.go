@@ -24,7 +24,6 @@ import (
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	jose "gopkg.in/square/go-jose.v2"
 )
@@ -933,103 +932,6 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	}
 	if respDump, err = httputil.DumpResponse(resp, true); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestPasswordDB(t *testing.T) {
-	s := newMemoryStore(logger)
-	conn := newPasswordDB(s)
-
-	pw := "hi"
-
-	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.CreatePassword(Password{
-		Email:    "jane@example.com",
-		Username: "jane",
-		UserID:   "foobar",
-		Hash:     h,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		name         string
-		username     string
-		password     string
-		wantIdentity Identity
-		wantInvalid  bool
-		wantErr      bool
-	}{
-		{
-			name:     "valid password",
-			username: "jane@example.com",
-			password: pw,
-			wantIdentity: Identity{
-				Email:         "jane@example.com",
-				Username:      "jane",
-				UserID:        "foobar",
-				EmailVerified: true,
-			},
-		},
-		{
-			name:        "unknown user",
-			username:    "john@example.com",
-			password:    pw,
-			wantInvalid: true,
-		},
-		{
-			name:        "invalid password",
-			username:    "jane@example.com",
-			password:    "not the correct password",
-			wantInvalid: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ident, valid, err := conn.Login(context.Background(), Scopes{}, tc.username, tc.password)
-			if err != nil {
-				if !tc.wantErr {
-					t.Errorf("%s: %v", tc.name, err)
-				}
-				return
-			}
-
-			if tc.wantErr {
-				t.Errorf("%s: expected error", tc.name)
-				return
-			}
-
-			if !valid {
-				if !tc.wantInvalid {
-					t.Errorf("%s: expected valid password", tc.name)
-				}
-				return
-			}
-
-			if tc.wantInvalid {
-				t.Errorf("%s: expected invalid password", tc.name)
-				return
-			}
-
-			if diff := pretty.Compare(tc.wantIdentity, ident); diff != "" {
-				t.Errorf("%s: %s", tc.name, diff)
-			}
-		})
-	}
-}
-
-func TestPasswordDBUsernamePrompt(t *testing.T) {
-	s := newMemoryStore(logger)
-	conn := newPasswordDB(s)
-
-	expected := "Email Address"
-	if actual := conn.Prompt(); actual != expected {
-		t.Errorf("expected %v, got %v", expected, actual)
 	}
 }
 
