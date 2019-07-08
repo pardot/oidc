@@ -37,6 +37,23 @@ type Signer interface {
 	VerifySignature(ctx context.Context, jwt string) (payload []byte, err error)
 }
 
+type errNotFound interface {
+	NotFoundErr()
+}
+
+// IsNotFoundErr checks to see if the passed error is because the item was not
+// found, as opposed to an actual error state. Errors comply to this if they
+// have an `NotFoundErr()` method, or are ErrIsNotFound
+func IsNotFoundErr(err error) bool {
+	if _, ok := err.(errNotFound); ok {
+		return true
+	}
+	if err == ErrNotFound {
+		return true
+	}
+	return false
+}
+
 // Config holds the server's configuration options.
 //
 // Multiple servers using the same storage are expected to be configured identically.

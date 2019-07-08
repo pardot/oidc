@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package deci.storage.v1beta1;
+option go_package = "storage";
+
+// Keys hold encryption and signing keys.
+message Keys {
+  // Key for creating and verifying signatures. These may be nil. They are
+  // store a JWK JSON Blobs
+  bytes SigningKey = 1 [ json_name = "signing_key" ];
+  bytes SigningKeyPub = 2 [ json_name = "signing_key_pub" ];
+
+  // Old signing keys which have been rotated but can still be used to validate
+  // existing signatures.
+  repeated VerificationKey verification_keys = 3
+      [ json_name = "verification_keys" ];
+
+  // The next time the signing key will rotate.
+  //
+  // For caching purposes, implementations MUST NOT update keys before this
+  // time.
+  google.protobuf.Timestamp next_rotation = 4 [ json_name = "next_rotation" ];
+}
+
+// VerificationKey is a rotated signing key which can still be used to verify
+// signatures.
+message VerificationKey {
+  // Stored as JWK JSON blob
+  bytes public_key = 1 [ json_name = "public_key" ];
+  google.protobuf.Timestamp expiry = 2 [ json_name = "expiry" ];
+}

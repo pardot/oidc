@@ -1,30 +1,46 @@
 package signer
 
 import (
+	"context"
+	"encoding/json"
+	"io/ioutil"
 	"os"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 
+	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	"github.com/heroku/deci/storage"
+	"github.com/heroku/deci/storage/disk"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/square/go-jose.v2"
 )
 
-func signingKeyID(t *testing.T, s Storage) string {
-	keys, err := s.GetKeys()
+func signingKeyID(t *testing.T, s storage.Storage) string {
+	keys := &storagepb.Keys{}
+	_, err := s.Get(context.TODO(), keysPrefix, keysKey, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return keys.SigningKey.KeyID
+	swk := jose.JSONWebKey{}
+	if err := json.Unmarshal(keys.SigningKey, &swk); err != nil {
+		t.Fatal(err)
+	}
+	return swk.KeyID
 }
 
-func verificationKeyIDs(t *testing.T, s Storage) (ids []string) {
-	keys, err := s.GetKeys()
+func verificationKeyIDs(t *testing.T, s storage.Storage) (ids []string) {
+	keys := &storagepb.Keys{}
+	_, err := s.Get(context.TODO(), keysPrefix, keysKey, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range keys.VerificationKeys {
-		ids = append(ids, key.PublicKey.KeyID)
+		vk := jose.JSONWebKey{}
+		if err := json.Unmarshal(key.PublicKey, &vk); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, vk.KeyID)
 	}
 	return ids
 }
@@ -71,8 +87,11 @@ func TestKeyRotater(t *testing.T) {
 		Level:     logrus.DebugLevel,
 	}
 
+	s, deferred := newStorage(t)
+	defer deferred()
+
 	r := &RotatingSigner{
-		storage:  newMemoryStore(),
+		storage:  s,
 		strategy: DefaultRotationStrategy(rotationFrequency, validFor),
 		now:      func() time.Time { return now },
 		logger:   l,
@@ -100,32 +119,22 @@ func TestKeyRotater(t *testing.T) {
 }
 
 // New returns an in memory
-func newMemoryStore() Storage {
-	return &memStorage{}
-}
+func newStorage(t *testing.T) (storage.Storage, func()) {
+	t.Helper()
 
-type memStorage struct {
-	mu   sync.Mutex
-	keys Keys
-}
+	dir, err := ioutil.TempDir("", "signer-test")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-func (s *memStorage) tx(f func()) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f()
-}
+	deferred := func() {
+		_ = os.RemoveAll(dir)
+	}
 
-func (s *memStorage) GetKeys() (keys Keys, err error) {
-	s.tx(func() { keys = s.keys })
-	return
-}
+	s, err := disk.New(dir+"test.db", 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-func (s *memStorage) UpdateKeys(updater func(old Keys) (Keys, error)) (err error) {
-	s.tx(func() {
-		var keys Keys
-		if keys, err = updater(s.keys); err == nil {
-			s.keys = keys
-		}
-	})
-	return
+	return s, deferred
 }

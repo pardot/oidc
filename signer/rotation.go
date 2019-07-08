@@ -5,20 +5,26 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"time"
 
-	"gopkg.in/square/go-jose.v2"
-
+	"github.com/golang/protobuf/ptypes"
+	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	"github.com/heroku/deci/storage"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/square/go-jose.v2"
 )
 
 var errAlreadyRotated = errors.New("keys already rotated by another server instance")
 
-// ErrNotFound is the error returned by storages if a resource cannot be found.
-var ErrNotFound = errors.New("not found")
+const (
+	keysPrefix = "signer-keys"
+	// we only have one set, so just use a fixed key
+	keysKey = "key"
+)
 
 // VerificationKey is a rotated signing key which can still be used to verify
 // signatures.
@@ -41,11 +47,6 @@ type Keys struct {
 	//
 	// For caching purposes, implementations MUST NOT update keys before this time.
 	NextRotation time.Time
-}
-
-type Storage interface {
-	GetKeys() (Keys, error)
-	UpdateKeys(updater func(old Keys) (Keys, error)) error
 }
 
 // RotationStrategy describes a strategy for generating cryptographic keys, how
@@ -87,7 +88,7 @@ func DefaultRotationStrategy(rotationFrequency, idTokenValidFor time.Duration) R
 
 // RotatingSigner is a OIDC signer that automatically rotates signing keys
 type RotatingSigner struct {
-	storage Storage
+	storage storage.Storage
 
 	strategy RotationStrategy
 	now      func() time.Time
@@ -95,7 +96,7 @@ type RotatingSigner struct {
 	logger logrus.FieldLogger
 }
 
-func NewRotating(l logrus.FieldLogger, storage Storage, strategy RotationStrategy) *RotatingSigner {
+func NewRotating(l logrus.FieldLogger, storage storage.Storage, strategy RotationStrategy) *RotatingSigner {
 	return &RotatingSigner{
 		storage:  storage,
 		logger:   l,
@@ -133,12 +134,19 @@ func (r *RotatingSigner) Start(ctx context.Context) {
 }
 
 func (r *RotatingSigner) rotate() error {
-	keys, err := r.storage.GetKeys()
-	if err != nil && err != ErrNotFound {
+	keys := &storagepb.Keys{}
+	kver, err := r.storage.Get(context.TODO(), keysPrefix, keysKey, keys)
+	if err != nil && !storage.IsNotFoundErr(err) {
 		return fmt.Errorf("get keys: %v", err)
 	}
-	if r.now().Before(keys.NextRotation) {
-		return nil
+	if keys.NextRotation != nil {
+		nr, err := ptypes.Timestamp(keys.NextRotation)
+		if err != nil {
+			return err
+		}
+		if r.now().Before(nr) {
+			return nil
+		}
 	}
 	r.logger.Infof("keys expired, rotating")
 
@@ -165,51 +173,65 @@ func (r *RotatingSigner) rotate() error {
 		Use:       "sig",
 	}
 
-	var nextRotation time.Time
-	err = r.storage.UpdateKeys(func(keys Keys) (Keys, error) {
-		tNow := r.now()
+	tNow := r.now()
 
-		// if you are running multiple instances of dex, another instance
-		// could have already rotated the keys.
-		if tNow.Before(keys.NextRotation) {
-			return Keys{}, errAlreadyRotated
+	expired := func(key *storagepb.VerificationKey) bool {
+		kexp, err := ptypes.Timestamp(key.Expiry)
+		if err != nil {
+			panic(err)
 		}
+		return tNow.After(kexp)
+	}
 
-		expired := func(key VerificationKey) bool {
-			return tNow.After(key.Expiry)
+	// Remove any verification keys that have expired.
+	i := 0
+	for _, key := range keys.VerificationKeys {
+		if !expired(key) {
+			keys.VerificationKeys[i] = key
+			i++
 		}
+	}
+	keys.VerificationKeys = keys.VerificationKeys[:i]
 
-		// Remove any verification keys that have expired.
-		i := 0
-		for _, key := range keys.VerificationKeys {
-			if !expired(key) {
-				keys.VerificationKeys[i] = key
-				i++
-			}
+	if keys.SigningKeyPub != nil {
+		// Move current signing key to a verification only key, throwing
+		// away the private part.
+		vkexp, err := ptypes.TimestampProto(tNow.Add(r.strategy.idTokenValidFor))
+		if err != nil {
+			return err
 		}
-		keys.VerificationKeys = keys.VerificationKeys[:i]
-
-		if keys.SigningKeyPub != nil {
-			// Move current signing key to a verification only key, throwing
-			// away the private part.
-			verificationKey := VerificationKey{
-				PublicKey: keys.SigningKeyPub,
-				// After demoting the signing key, keep the token around for at least
-				// the amount of time an ID Token is valid for. This ensures the
-				// verification key won't expire until all ID Tokens it's signed
-				// expired as well.
-				Expiry: tNow.Add(r.strategy.idTokenValidFor),
-			}
-			keys.VerificationKeys = append(keys.VerificationKeys, verificationKey)
+		verificationKey := &storagepb.VerificationKey{
+			PublicKey: keys.SigningKeyPub,
+			// After demoting the signing key, keep the token around for at least
+			// the amount of time an ID Token is valid for. This ensures the
+			// verification key won't expire until all ID Tokens it's signed
+			// expired as well.
+			Expiry: vkexp,
 		}
+		keys.VerificationKeys = append(keys.VerificationKeys, verificationKey)
+	}
 
-		nextRotation = r.now().Add(r.strategy.rotationFrequency)
-		keys.SigningKey = priv
-		keys.SigningKeyPub = pub
-		keys.NextRotation = nextRotation
-		return keys, nil
-	})
+	nextRotation, err := ptypes.TimestampProto(r.now().Add(r.strategy.rotationFrequency))
 	if err != nil {
+		return err
+	}
+	privb, err := json.Marshal(priv)
+	if err != nil {
+		return err
+	}
+	keys.SigningKey = privb
+	pubb, err := json.Marshal(pub)
+	if err != nil {
+		return err
+	}
+	keys.SigningKeyPub = pubb
+	keys.NextRotation = nextRotation
+
+	if err := r.storage.Put(context.TODO(), keysPrefix, keysKey, kver, keys); err != nil {
+		if storage.IsConflictErr(err) {
+			// Assume someone else updated, so roll with it
+			return nil
+		}
 		return err
 	}
 
@@ -219,58 +241,78 @@ func (r *RotatingSigner) rotate() error {
 
 // PublicKeys returns a keyset of all valid signer public keys considered
 // valid for signed tokens
-func (r *RotatingSigner) PublicKeys(_ context.Context) (*jose.JSONWebKeySet, error) {
-	keys, err := r.storage.GetKeys()
+func (r *RotatingSigner) PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error) {
+	keys, err := r.pubKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
-	vks := []jose.JSONWebKey{}
-	if keys.SigningKeyPub != nil {
-		vks = append(vks, *keys.SigningKeyPub)
-	}
-	for _, k := range keys.VerificationKeys {
-		vks = append(vks, *k.PublicKey)
-	}
 	return &jose.JSONWebKeySet{
-		Keys: vks,
+		Keys: keys,
 	}, nil
 }
 
 // SignerAlg returns the algorithm the signer uses
-func (r *RotatingSigner) SignerAlg(_ context.Context) (jose.SignatureAlgorithm, error) {
-	keys, err := r.storage.GetKeys()
+func (r *RotatingSigner) SignerAlg(ctx context.Context) (jose.SignatureAlgorithm, error) {
+	keys := &storagepb.Keys{}
+	_, err := r.storage.Get(ctx, keysPrefix, keysKey, keys)
 	if err != nil {
 		return jose.SignatureAlgorithm(""), err
 	}
-	return jose.SignatureAlgorithm(keys.SigningKey.Algorithm), nil
+	swk := jose.JSONWebKey{}
+	if err := json.Unmarshal(keys.SigningKey, &swk); err != nil {
+		return jose.SignatureAlgorithm(""), err
+	}
+	return jose.SignatureAlgorithm(swk.Algorithm), nil
 }
 
 // Sign the provided data
-func (r *RotatingSigner) Sign(ctx context.Context, data []byte) (signed []byte, err error) {
-	keys, err := r.storage.GetKeys()
+func (r *RotatingSigner) Sign(ctx context.Context, data []byte) ([]byte, error) {
+	keys := &storagepb.Keys{}
+	_, err := r.storage.Get(ctx, keysPrefix, keysKey, keys)
 	if err != nil {
 		return nil, err
 	}
+	swk := jose.JSONWebKey{}
+	if err := json.Unmarshal(keys.SigningKey, &swk); err != nil {
+		return nil, err
+	}
 	sk := jose.SigningKey{
-		Algorithm: jose.SignatureAlgorithm(keys.SigningKey.Algorithm),
-		Key:       keys.SigningKey.Key,
+		Algorithm: jose.SignatureAlgorithm(swk.Algorithm),
+		Key:       swk.Key,
 	}
 	return sign(ctx, sk, data)
 }
 
 // VerifySignature verifies the signature given token against the current signers
 func (r *RotatingSigner) VerifySignature(ctx context.Context, jwt string) (payload []byte, err error) {
-	keys, err := r.storage.GetKeys()
+	keys, err := r.pubKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return verifySignature(ctx, keys, jwt)
+}
+
+// pubKeys returns all currently valid public keys for this instance.
+func (r *RotatingSigner) pubKeys(ctx context.Context) ([]jose.JSONWebKey, error) {
+	keys := &storagepb.Keys{}
+	_, err := r.storage.Get(ctx, keysPrefix, keysKey, keys)
 	if err != nil {
 		return nil, err
 	}
 	vks := []jose.JSONWebKey{}
 	if keys.SigningKeyPub != nil {
-		vks = append(vks, *keys.SigningKeyPub)
+		sk := jose.JSONWebKey{}
+		if err := json.Unmarshal(keys.SigningKeyPub, &sk); err != nil {
+			return nil, err
+		}
+		vks = append(vks, sk)
 	}
 	for _, k := range keys.VerificationKeys {
-		vks = append(vks, *k.PublicKey)
+		vk := jose.JSONWebKey{}
+		if err := json.Unmarshal(k.PublicKey, &vk); err != nil {
+			return nil, err
+		}
+		vks = append(vks, vk)
 	}
-
-	return verifySignature(ctx, vks, jwt)
+	return vks, nil
 }

@@ -53,8 +53,11 @@ func TestSigner(t *testing.T) {
 			signer: func(t *testing.T) signer {
 				t.Helper()
 
+				s, deferred := newStorage(t)
+				defer deferred()
+
 				r := &RotatingSigner{
-					storage:  newMemoryStore(),
+					storage:  s,
 					strategy: DefaultRotationStrategy(time.Second*1, time.Second*5),
 					now:      time.Now,
 					logger:   &logrus.Logger{Out: ioutil.Discard},
