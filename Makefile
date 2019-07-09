@@ -1,8 +1,8 @@
-.PHONY = all build test proto gobin
+.PHONY: all build test proto gobin packr
 
 gopath=$(shell go env GOPATH)
 
-all: proto build test lint
+all: proto packr build test lint
 
 build:
 	go build ./oidcserver/... ./signer/...
@@ -12,6 +12,12 @@ test:
 
 lint: $(gopath)/bin/gobin
 	gobin -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run ./oidcserver/... ./signer/...
+
+packr: oidcserver/oidcserver-packr.go
+
+oidcserver/oidcserver-packr.go: $(gopath)/bin/gobin oidcserver/web
+	cd oidcserver && gobin -m -run github.com/gobuffalo/packr/v2/packr2 clean
+	cd oidcserver && gobin -m -run github.com/gobuffalo/packr/v2/packr2
 
 proto: proto/deci/storage/v1beta1/storage.pb.go
 

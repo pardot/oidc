@@ -211,17 +211,9 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 		supported[respType] = true
 	}
 
-	web := webConfig{
-		dir:       c.Web.Dir,
-		logoURL:   c.Web.LogoURL,
-		issuerURL: c.Issuer,
-		issuer:    c.Web.Issuer,
-		theme:     c.Web.Theme,
-	}
-
-	static, theme, tmpls, err := loadWebConfig(web)
+	tmpls, err := loadTemplates(c.Issuer, "", c.Issuer, nil, nil, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("server: failed to load web static: %v", err)
+		return nil, fmt.Errorf("server: failed to load web templates: %v", err)
 	}
 
 	now := c.Now
@@ -293,8 +285,7 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 	handleFunc("/auth", s.handleAuthorization)
 	handleFunc("/auth/{connector}", s.handleConnectorLogin)
 	handleFunc("/approval", s.handleApproval)
-	handlePrefix("/static", static)
-	handlePrefix("/theme", theme)
+	handlePrefix("/static", http.FileServer(webStatic))
 	s.mux = r
 
 	return s, nil

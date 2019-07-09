@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	packr "github.com/gobuffalo/packr/v2"
+)
+
+var (
+	webTemplates = packr.New("templates", "./web/templates")
+	webStatic    = packr.New("static", "./web/static")
 )
 
 const (
@@ -19,26 +23,11 @@ const (
 	tmplError    = "error.html"
 )
 
-var requiredTmpls = []string{
-	tmplApproval,
-	tmplLogin,
-	tmplOOB,
-	tmplError,
-}
-
 type templates struct {
 	loginTmpl    *template.Template
 	approvalTmpl *template.Template
 	oobTmpl      *template.Template
 	errorTmpl    *template.Template
-}
-
-type webConfig struct {
-	dir       string
-	logoURL   string
-	issuer    string
-	theme     string
-	issuerURL string
 }
 
 func join(base, path string) string {
@@ -54,109 +43,64 @@ func join(base, path string) string {
 	}
 }
 
-func dirExists(dir string) error {
-	stat, err := os.Stat(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("directory %q does not exist", dir)
-		}
-		return fmt.Errorf("stat directory %q: %v", dir, err)
-	}
-	if !stat.IsDir() {
-		return fmt.Errorf("path %q is a file not a directory", dir)
-	}
-	return nil
-}
-
-// loadWebConfig returns static assets, theme assets, and templates used by the frontend by
-// reading the directory specified in the webConfig.
-//
-// The directory layout is expected to be:
-//
-//    ( web directory )
-//    |- static
-//    |- themes
-//    |  |- (theme name)
-//    |- templates
-//
-func loadWebConfig(c webConfig) (static, theme http.Handler, templates *templates, err error) {
-	if c.theme == "" {
-		c.theme = "coreos"
-	}
-	if c.issuer == "" {
-		c.issuer = "dex"
-	}
-	if c.dir == "" {
-		c.dir = "./web"
-	}
-	if c.logoURL == "" {
-		c.logoURL = join(c.issuerURL, "theme/logo.png")
-	}
-
-	if err := dirExists(c.dir); err != nil {
-		return nil, nil, nil, fmt.Errorf("load web dir: %v", err)
-	}
-
-	staticDir := filepath.Join(c.dir, "static")
-	templatesDir := filepath.Join(c.dir, "templates")
-	themeDir := filepath.Join(c.dir, "themes", c.theme)
-
-	for _, dir := range []string{staticDir, templatesDir, themeDir} {
-		if err := dirExists(dir); err != nil {
-			return nil, nil, nil, fmt.Errorf("load dir: %v", err)
-		}
-	}
-
-	static = http.FileServer(http.Dir(staticDir))
-	theme = http.FileServer(http.Dir(themeDir))
-
-	templates, err = loadTemplates(c, templatesDir)
-	return
-}
-
 // loadTemplates parses the expected templates from the provided directory.
-func loadTemplates(c webConfig, templatesDir string) (*templates, error) {
-	files, err := ioutil.ReadDir(templatesDir)
-	if err != nil {
-		return nil, fmt.Errorf("read dir: %v", err)
-	}
-
-	filenames := []string{}
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		filenames = append(filenames, filepath.Join(templatesDir, file.Name()))
-	}
-	if len(filenames) == 0 {
-		return nil, fmt.Errorf("no files in template dir %q", templatesDir)
-	}
-
+func loadTemplates(issuer, logoURL, issuerURL string, loginTmpl, approvalTmpl, oobTmpl, errorTmpl *template.Template) (*templates, error) {
 	funcs := map[string]interface{}{
-		"issuer": func() string { return c.issuer },
-		"logo":   func() string { return c.logoURL },
-		"url":    func(s string) string { return join(c.issuerURL, s) },
+		"issuer": func() string { return issuer },
+		"logo":   func() string { return logoURL },
+		"url":    func(s string) string { return join(issuerURL, s) },
 		"lower":  strings.ToLower,
 	}
 
-	tmpls, err := template.New("").Funcs(funcs).ParseFiles(filenames...)
-	if err != nil {
-		return nil, fmt.Errorf("parse files: %v", err)
-	}
-	missingTmpls := []string{}
-	for _, tmplName := range requiredTmpls {
-		if tmpls.Lookup(tmplName) == nil {
-			missingTmpls = append(missingTmpls, tmplName)
+	if loginTmpl == nil {
+		ts, err := webTemplates.FindString(tmplLogin)
+		if err != nil {
+			return nil, err
+		}
+		loginTmpl, err = template.New("").Funcs(funcs).Parse(ts)
+		if err != nil {
+			return nil, err
 		}
 	}
-	if len(missingTmpls) > 0 {
-		return nil, fmt.Errorf("missing template(s): %s", missingTmpls)
+
+	if approvalTmpl == nil {
+		ts, err := webTemplates.FindString(tmplApproval)
+		if err != nil {
+			return nil, err
+		}
+		approvalTmpl, err = template.New("").Funcs(funcs).Parse(ts)
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	if oobTmpl == nil {
+		ts, err := webTemplates.FindString(tmplOOB)
+		if err != nil {
+			return nil, err
+		}
+		oobTmpl, err = template.New("").Funcs(funcs).Parse(ts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if errorTmpl == nil {
+		ts, err := webTemplates.FindString(tmplError)
+		if err != nil {
+			return nil, err
+		}
+		errorTmpl, err = template.New("").Funcs(funcs).Parse(ts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &templates{
-		loginTmpl:    tmpls.Lookup(tmplLogin),
-		approvalTmpl: tmpls.Lookup(tmplApproval),
-		oobTmpl:      tmpls.Lookup(tmplOOB),
-		errorTmpl:    tmpls.Lookup(tmplError),
+		loginTmpl:    loginTmpl,
+		approvalTmpl: approvalTmpl,
+		oobTmpl:      oobTmpl,
+		errorTmpl:    errorTmpl,
 	}, nil
 }
 
