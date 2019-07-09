@@ -13,10 +13,7 @@ test:
 lint: $(gopath)/bin/gobin
 	gobin -m -run github.com/golangci/golangci-lint/cmd/golangci-lint run ./oidcserver/... ./signer/...
 
-proto: internal/serializedpb/deciserialized.pb.go proto/deci/storage/v1beta1/storage.pb.go
-
-internal/serializedpb/deciserialized.pb.go: proto/deciserialized.proto
-	protoc -I proto --go_out=internal/serializedpb deciserialized.proto
+proto: proto/deci/storage/v1beta1/storage.pb.go
 
 proto/deci/storage/v1beta1/storage.pb.go: proto/deci/storage/v1beta1/storage.proto
 	protoc -I proto/deci/storage/v1beta1 --go_out=proto/deci/storage/v1beta1 storage.proto

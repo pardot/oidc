@@ -1,5 +1,0 @@
----
-- id: example-app
-  secret: ZXhhbXBsZS1hcHAtc2VjcmV0
-  redirectURIs:
-    - http://127.0.0.1:5555/callback
