@@ -1,13 +1,11 @@
 package oidcserver
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -188,7 +186,7 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	// Set the connector being used for the login.
 	if authReq.ConnectorId != connID {
 		authReq.ConnectorId = connID
-		authReqVers, err = s.storage.Put(r.Context(), authReqKeyspace, authReqID, authReqVers, authReq)
+		_, err = s.storage.Put(r.Context(), authReqKeyspace, authReqID, authReqVers, authReq)
 		if err != nil {
 			s.logger.Errorf("Failed to set connector ID on auth request: %v", err)
 			s.renderError(w, http.StatusInternalServerError, "Database error.")
@@ -196,199 +194,12 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	scopes := parseScopes(authReq.Scopes)
-	showBacklink := len(s.connectors) > 1
-
-	switch r.Method {
-	case http.MethodGet:
-		switch conn := conn.(type) {
-		case CallbackConnector:
-			// Use the auth request ID as the "state" token.
-			//
-			// TODO(ericchiang): Is this appropriate or should we also be using a nonce?
-			callbackURL, err := conn.LoginURL(scopes, s.absURL("/callback"), authReqID)
-			if err != nil {
-				s.logger.Errorf("Connector %q returned error when creating callback: %v", connID, err)
-				s.renderError(w, http.StatusInternalServerError, "Login error.")
-				return
-			}
-			http.Redirect(w, r, callbackURL, http.StatusFound)
-		case PasswordConnector:
-			if err := s.templates.password(w, r.URL.String(), "", usernamePrompt(conn), false, showBacklink); err != nil {
-				s.logger.Errorf("Server template error: %v", err)
-			}
-		case SAMLConnector:
-			action, value, err := conn.POSTData(scopes, authReqID)
-			if err != nil {
-				s.logger.Errorf("Creating SAML data: %v", err)
-				s.renderError(w, http.StatusInternalServerError, "Connector Login Error")
-				return
-			}
-
-			// TODO(ericchiang): Don't inline this.
-			fmt.Fprintf(w, `<!DOCTYPE html>
-			  <html lang="en">
-			  <head>
-			    <meta http-equiv="content-type" content="text/html; charset=utf-8">
-			    <title>SAML login</title>
-			  </head>
-			  <body>
-			    <form method="post" action="%s" >
-				    <input type="hidden" name="SAMLRequest" value="%s" />
-				    <input type="hidden" name="RelayState" value="%s" />
-			    </form>
-				<script>
-				    document.forms[0].submit();
-				</script>
-			  </body>
-			  </html>`, action, value, authReqID)
-		default:
-			s.renderError(w, http.StatusBadRequest, "Requested resource does not exist.")
-		}
-	case http.MethodPost:
-		passwordConnector, ok := conn.(PasswordConnector)
-		if !ok {
-			s.renderError(w, http.StatusBadRequest, "Requested resource does not exist.")
-			return
-		}
-
-		username := r.FormValue("login")
-		password := r.FormValue("password")
-
-		identity, ok, err := passwordConnector.Login(r.Context(), scopes, username, password)
-		if err != nil {
-			s.logger.Errorf("Failed to login user: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Login error.")
-			return
-		}
-		if !ok {
-			if err := s.templates.password(w, r.URL.String(), username, usernamePrompt(passwordConnector), true, showBacklink); err != nil {
-				s.logger.Errorf("Server template error: %v", err)
-			}
-			return
-		}
-		redirectURL, err := s.finalizeLogin(r.Context(), identity, authReq, authReqVers)
-		if err != nil {
-			s.logger.Errorf("Failed to finalize login: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Login error.")
-			return
-		}
-
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
-	default:
-		s.renderError(w, http.StatusBadRequest, "Unsupported request method.")
-	}
-}
-
-func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request) {
-	var authID string
-	switch r.Method {
-	case http.MethodGet: // OAuth2 callback
-		if authID = r.URL.Query().Get("state"); authID == "" {
-			s.renderError(w, http.StatusBadRequest, "User session error.")
-			return
-		}
-	case http.MethodPost: // SAML POST binding
-		if authID = r.PostFormValue("RelayState"); authID == "" {
-			s.renderError(w, http.StatusBadRequest, "User session error.")
-			return
-		}
-	default:
-		s.renderError(w, http.StatusBadRequest, "Method not supported")
-		return
+	lr := LoginRequest{
+		AuthID: authReqID,
+		Scopes: parseScopes(authReq.Scopes),
 	}
 
-	authReq := &storagepb.AuthRequest{}
-	authReqVers, err := s.storage.Get(r.Context(), authReqKeyspace, authID, authReq)
-	if err != nil {
-		if storage.IsNotFoundErr(err) {
-			s.logger.Errorf("Invalid 'state' parameter provided: %v", err)
-			s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-			return
-		}
-		s.logger.Errorf("Failed to get auth request: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Database error.")
-		return
-	}
-
-	if connID := mux.Vars(r)["connector"]; connID != "" && connID != authReq.ConnectorId {
-		s.logger.Errorf("Connector mismatch: authentication started with id %q, but callback for id %q was triggered", authReq.ConnectorId, connID)
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	conn, ok := s.connectors[authReq.ConnectorId]
-	if !ok {
-		s.logger.Errorf("Failed to get connector with id %q : connector not found", authReq.ConnectorId)
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	var identity Identity
-	switch conn := conn.(type) {
-	case CallbackConnector:
-		if r.Method != http.MethodGet {
-			s.logger.Errorf("SAML request mapped to OAuth2 connector")
-			s.renderError(w, http.StatusBadRequest, "Invalid request")
-			return
-		}
-		identity, err = conn.HandleCallback(parseScopes(authReq.Scopes), r)
-	case SAMLConnector:
-		if r.Method != http.MethodPost {
-			s.logger.Errorf("OAuth2 request mapped to SAML connector")
-			s.renderError(w, http.StatusBadRequest, "Invalid request")
-			return
-		}
-		identity, err = conn.HandlePOST(parseScopes(authReq.Scopes), r.PostFormValue("SAMLResponse"), authReq.Id)
-	default:
-		s.renderError(w, http.StatusInternalServerError, "Requested resource does not exist.")
-		return
-	}
-
-	if err != nil {
-		s.logger.Errorf("Failed to authenticate: %v", err)
-		s.renderError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to authenticate: %v", err))
-		return
-	}
-
-	redirectURL, err := s.finalizeLogin(r.Context(), identity, authReq, authReqVers)
-	if err != nil {
-		s.logger.Errorf("Failed to finalize login: %v", err)
-		s.renderError(w, http.StatusInternalServerError, "Login error.")
-		return
-	}
-
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
-}
-
-// finalizeLogin associates the user's identity with the current AuthRequest, then returns
-// the approval page's path.
-func (s *Server) finalizeLogin(ctx context.Context, identity Identity, authReq *storagepb.AuthRequest, authReqVers string) (string, error) {
-	claims := &storagepb.Claims{
-		UserId:        identity.UserID,
-		Username:      identity.Username,
-		Email:         identity.Email,
-		EmailVerified: identity.EmailVerified,
-		Groups:        identity.Groups,
-	}
-
-	authReq.LoggedIn = true
-	authReq.Claims = claims
-	authReq.ConnectorData = identity.ConnectorData
-
-	if _, err := s.storage.Put(ctx, authReqKeyspace, authReq.Id, authReqVers, authReq); err != nil {
-		return "", fmt.Errorf("failed to update auth request: %v", err)
-	}
-
-	email := claims.Email
-	if !claims.EmailVerified {
-		email = email + " (unverified)"
-	}
-
-	s.logger.Infof("login successful: connector %q, username=%q, email=%q, groups=%q",
-		authReq.ConnectorId, claims.Username, email, claims.Groups)
-
-	return path.Join(s.issuerURL.Path, "/approval") + "?req=" + authReq.Id, nil
+	conn.LoginPage(w, r, lr)
 }
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
@@ -1048,14 +859,6 @@ func (s *Server) tokenErrHelper(w http.ResponseWriter, typ string, description s
 	if err := tokenErr(w, typ, description, statusCode); err != nil {
 		s.logger.Errorf("token error response: %v", err)
 	}
-}
-
-// Check for username prompt override from connector. Defaults to "Username".
-func usernamePrompt(conn PasswordConnector) string {
-	if attr := conn.Prompt(); attr != "" {
-		return attr
-	}
-	return "Username"
 }
 
 func offlineSessionID(userID, connID string) string {

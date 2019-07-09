@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/felixge/httpsnoop"
@@ -293,25 +292,21 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 	handleWithCORS("/userinfo", s.handleUserInfo)
 	handleFunc("/auth", s.handleAuthorization)
 	handleFunc("/auth/{connector}", s.handleConnectorLogin)
-	r.HandleFunc(path.Join(issuerURL.Path, "/callback"), func(w http.ResponseWriter, r *http.Request) {
-		// Strip the X-Remote-* headers to prevent security issues on
-		// misconfigured authproxy connector setups.
-		for key := range r.Header {
-			if strings.HasPrefix(strings.ToLower(key), "x-remote-") {
-				r.Header.Del(key)
-			}
-		}
-		s.handleConnectorCallback(w, r)
-	})
-	// For easier connector-specific web server configuration, e.g. for the
-	// "authproxy" connector.
-	handleFunc("/callback/{connector}", s.handleConnectorCallback)
 	handleFunc("/approval", s.handleApproval)
 	handlePrefix("/static", static)
 	handlePrefix("/theme", theme)
 	s.mux = r
 
 	return s, nil
+}
+
+func (s *Server) initConnectors() error {
+	for _, c := range s.connectors {
+		if err := c.Initialize(&authenticator{s: s}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

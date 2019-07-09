@@ -78,6 +78,8 @@ var logger = &logrus.Logger{
 }
 
 func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Config)) (*httptest.Server, *Server) {
+	t.Helper()
+
 	var server *Server
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		server.ServeHTTP(w, r)
@@ -110,7 +112,10 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 	if server, err = newServer(ctx, config); err != nil {
 		t.Fatal(err)
 	}
-	server.connectors = map[string]Connector{"mock": NewCallbackConnector(logger)}
+	server.connectors = map[string]Connector{"mock": newMockConnector()}
+	if err := server.initConnectors(); err != nil {
+		t.Fatal(err)
+	}
 	server.skipApproval = true // Don't prompt for approval, just immediately redirect with code.
 
 	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: testKey}
@@ -187,7 +192,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 	idTokensValidFor := time.Second * 30
 
 	// Connector used by the tests.
-	var conn *Callback
+	var conn *mockConnector
 
 	oidcConfig := &oidc.Config{SkipClientIDCheck: true}
 
@@ -452,7 +457,7 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			defer httpServer.Close()
 
 			mockConn := s.connectors["mock"]
-			conn = mockConn.(*Callback)
+			conn = mockConn.(*mockConnector)
 
 			// Query server's provider metadata.
 			p, err := oidc.NewProvider(ctx, httpServer.URL)
