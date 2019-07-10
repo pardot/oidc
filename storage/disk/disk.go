@@ -47,7 +47,7 @@ func (*errConflict) ConflictErr() {}
 
 type Storage struct {
 	db  *bolt.DB
-	now func() time.Time
+	Now func() time.Time
 }
 
 func New(path string, mode os.FileMode) (*Storage, error) {
@@ -55,7 +55,7 @@ func New(path string, mode os.FileMode) (*Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Storage{db: db, now: time.Now}, nil
+	return &Storage{db: db, Now: time.Now}, nil
 }
 
 func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Message) (version string, err error) {
@@ -74,7 +74,7 @@ func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Messag
 		if err != nil {
 			return err
 		}
-		if r.Expires != nil && r.Expires.Before(s.now()) {
+		if r.Expires != nil && r.Expires.Before(s.Now()) {
 			return &errNotFound{fmt.Errorf("%s/%s has expired", keyspace, key)}
 		}
 		vers = strconv.FormatInt(r.Version, 10)
@@ -91,16 +91,17 @@ func (s *Storage) Put(ctx context.Context, keyspace, key, version string, obj pr
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, nil)
 }
 
-func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time)  (newVersion string, err error) {
+func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time) (newVersion string, err error) {
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, &expires)
 }
 
-func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires *time.Time)  (newVersion string, err error) {
+func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires *time.Time) (newVersion string, err error) {
 	var nvers int64
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(keyspace))
 		var existing bool
 		var existvers int64
+		newExp := expires
 
 		if err != nil {
 			return err
@@ -113,9 +114,12 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 				return err
 			}
 			// don't count expired objects
-			if r.Expires == nil || r.Expires.Before(s.now()) {
+			if r.Expires == nil || r.Expires.After(s.Now()) {
 				existing = true
 				existvers = r.Version
+				if newExp == nil {
+					newExp = r.Expires
+				}
 			}
 		}
 
@@ -144,7 +148,7 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 		r := &record{
 			Version: nvers,
 			Data:    pb,
-			Expires: expires,
+			Expires: newExp,
 		}
 		rb, err := r.encode()
 		if err != nil {

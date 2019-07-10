@@ -80,7 +80,7 @@ func TestExpiry(t *testing.T) {
 	ctx, s, deferred := setup(t)
 	defer deferred()
 
-	defer func() { s.now = time.Now }()
+	defer func() { s.Now = time.Now }()
 
 	msg := &jpbpb.Simple{}
 
@@ -95,7 +95,7 @@ func TestExpiry(t *testing.T) {
 	}
 
 	// pretend we're a day in the future now
-	s.now = func() time.Time { return time.Now().Add(24 * time.Hour) }
+	s.Now = func() time.Time { return time.Now().Add(24 * time.Hour) }
 
 	_, err = s.Get(ctx, "test", "exp", msg)
 	if !storage.IsNotFoundErr(err) {

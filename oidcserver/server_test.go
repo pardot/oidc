@@ -113,6 +113,7 @@ func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)
 		if updateServer != nil {
 			updateServer(svr)
 			s.URL = svr.issuerURL.String()
+			stor.Now = svr.now
 		}
 		return nil
 	}

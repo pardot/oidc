@@ -121,13 +121,14 @@ func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 	//
 	// See: https://github.com/dexidp/dex/issues/646
 	var perr error
-	authReq.Expiry, perr = ptypes.TimestampProto(s.now().Add(s.authRequestsValidFor))
+	authExp := s.now().Add(s.authRequestsValidFor)
+	authReq.Expiry, perr = ptypes.TimestampProto(authExp)
 	if perr != nil {
 		s.logger.Errorf("Failed to convert timestamp: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Internal Error.")
 		return
 	}
-	if _, err := s.storage.Put(r.Context(), authReqKeyspace, authReq.Id, "", authReq); err != nil {
+	if _, err := s.storage.PutWithExpiry(r.Context(), authReqKeyspace, authReq.Id, "", authReq, authExp); err != nil {
 		s.logger.Errorf("Failed to create authorization request: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Failed to connect to the database.")
 		return
@@ -286,7 +287,8 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 	for _, responseType := range authReq.ResponseTypes {
 		switch responseType {
 		case responseTypeCode:
-			exp, err := ptypes.TimestampProto(s.now().Add(time.Minute * 30))
+			exp := s.now().Add(time.Minute * 30)
+			expTS, err := ptypes.TimestampProto(exp)
 			if err != nil {
 				s.renderError(w, http.StatusInternalServerError, "Internal Error.")
 				return
@@ -298,11 +300,11 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 				Nonce:         authReq.Nonce,
 				Scopes:        authReq.Scopes,
 				Claims:        authReq.Claims,
-				Expiry:        exp,
+				Expiry:        expTS,
 				RedirectUri:   authReq.RedirectUri,
 				ConnectorData: authReq.ConnectorData,
 			}
-			if _, err := s.storage.Put(r.Context(), authCodeKeyspace, code.Id, "", code); err != nil {
+			if _, err := s.storage.PutWithExpiry(r.Context(), authCodeKeyspace, code.Id, "", code, exp); err != nil {
 				s.logger.Errorf("Failed to create auth code: %v", err)
 				s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 				return
