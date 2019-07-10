@@ -148,8 +148,12 @@ func TestParseAuthorizationRequest(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			httpServer, server := newTestServer(ctx, t, func(c *Config) {
-				c.SupportedResponseTypes = tc.supportedResponseTypes
+			httpServer, server := newTestServer(ctx, t, func(s *Server) {
+				srt := map[string]bool{}
+				for _, rt := range tc.supportedResponseTypes {
+					srt[rt] = true
+				}
+				s.supportedResponseTypes = srt
 			})
 			defer httpServer.Close()
 

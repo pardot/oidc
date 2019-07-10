@@ -2,8 +2,9 @@ package oidcserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"html/template"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -83,76 +84,6 @@ type Client struct {
 	LogoURL string `json:"logoURL" yaml:"logoURL"`
 }
 
-// Config holds the server's configuration options.
-//
-// Multiple servers using the same storage are expected to be configured identically.
-type Config struct {
-	Issuer string
-
-	// The backing persistence layer.
-	Storage storage.Storage
-
-	// Valid values are "code" to enable the code flow and "token" to enable the implicit
-	// flow. If no response types are supplied this value defaults to "code".
-	SupportedResponseTypes []string
-
-	// List of allowed origins for CORS requests on discovery, token and keys endpoint.
-	// If none are indicated, CORS requests are disabled. Passing in "*" will allow any
-	// domain.
-	AllowedOrigins []string
-
-	// If enabled, the server won't prompt the user to approve authorization requests.
-	// Logging in implies approval.
-	SkipApprovalScreen bool
-
-	RotateKeysAfter      time.Duration // Defaults to 6 hours.
-	IDTokensValidFor     time.Duration // Defaults to 24 hours
-	AuthRequestsValidFor time.Duration // Defaults to 24 hours
-
-	GCFrequency time.Duration // Defaults to 5 minutes
-
-	// If specified, the server will use this function for determining time.
-	Now func() time.Time
-
-	Web WebConfig
-
-	Logger logrus.FieldLogger
-
-	PrometheusRegistry *prometheus.Registry
-}
-
-// WebConfig holds the server's frontend templates and asset configuration.
-//
-// These are currently very custom to CoreOS and it's not recommended that
-// outside users attempt to customize these.
-type WebConfig struct {
-	// A filepath to web static.
-	//
-	// It is expected to contain the following directories:
-	//
-	//   * static - Static static served at "( issuer URL )/static".
-	//   * templates - HTML templates controlled by dex.
-	//   * themes/(theme) - Static static served at "( issuer URL )/theme".
-	//
-	Dir string
-
-	// Defaults to "( issuer URL )/theme/logo.png"
-	LogoURL string
-
-	// Defaults to "dex"
-	Issuer string
-
-	// Defaults to "coreos"
-	Theme string
-}
-
-func value(val, defaultValue time.Duration) time.Duration {
-	if val == 0 {
-		return defaultValue
-	}
-	return val
-}
-
 // Server is the top level object.
 type Server struct {
 	issuerURL url.URL
@@ -181,57 +112,135 @@ type Server struct {
 	signer Signer
 
 	logger logrus.FieldLogger
+
+	registry *prometheus.Registry
+
+	allowedOrigins []string
 }
 
-// NewServer constructs a server from the provided config.
-func NewServer(ctx context.Context, c Config) (*Server, error) {
-	return newServer(ctx, c)
+// ServerOption defines optional configuration items for the OIDC server.
+type ServerOption func(s *Server) error
+
+// WithSupportedResponseTypes valid values are "code" to enable the code flow
+// and "token" to enable the implicit flow. If no response types are supplied
+// this value defaults to "code".
+func WithSupportedResponseTypes(responseTypes []string) ServerOption {
+	return ServerOption(func(s *Server) error {
+		supported := make(map[string]bool)
+		for _, respType := range responseTypes {
+			switch respType {
+			case responseTypeCode, responseTypeIDToken, responseTypeToken:
+			default:
+				return fmt.Errorf("unsupported response_type %q", respType)
+			}
+			supported[respType] = true
+		}
+		s.supportedResponseTypes = supported
+		return nil
+	})
 }
 
-func newServer(_ context.Context, c Config) (*Server, error) {
-	issuerURL, err := url.Parse(c.Issuer)
+// WithIDTokenValidity sets how long issued ID tokens are valid for
+func WithIDTokenValidity(validFor time.Duration) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.idTokensValidFor = validFor
+		return nil
+	})
+}
+
+// WithAuthRequestValidity sets how long an authorization flow is considered
+// valid.
+func WithAuthRequestValidity(validFor time.Duration) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.authRequestsValidFor = validFor
+		return nil
+	})
+}
+
+// WithSkipApprovalScreen can be used to set skipping the approval screen on a
+// global level
+func WithSkipApprovalScreen(skip bool) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.skipApproval = skip
+		return nil
+	})
+}
+
+// WithLogger sets a logger on the server, otherwise no output will be logged
+func WithLogger(logger logrus.FieldLogger) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.logger = logger
+		return nil
+	})
+}
+
+// WithTemplates will use the provided template items for rendering these pages,
+// over the built-in. See ./web/templates for examples.
+func WithTemplates(loginTemplate, approvalTemplate, oobTemplate, errorTemplate *template.Template) ServerOption {
+	return ServerOption(func(s *Server) error {
+		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String(), loginTemplate, approvalTemplate, oobTemplate, errorTemplate)
+		if err != nil {
+			return fmt.Errorf("server: failed to load web templates: %v", err)
+		}
+		s.templates = tmpls
+		return nil
+	})
+}
+
+func WithPrometheusRegistry(registry *prometheus.Registry) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.registry = registry
+		return nil
+	})
+}
+
+// WithAllowedOrigins is a List of allowed origins for CORS requests on
+// discovery, token and keys endpoint. If none are indicated, CORS requests are
+// disabled. Passing in "*" will allow any domain.
+func WithAllowedOrigins(origins []string) ServerOption {
+	return ServerOption(func(s *Server) error {
+		s.allowedOrigins = append(s.allowedOrigins, origins...)
+		return nil
+	})
+}
+
+func New(issuer string, storage storage.Storage, signer Signer, connectors map[string]Connector, clients ClientSource, opts ...ServerOption) (*Server, error) {
+	issURL, err := url.Parse(issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
 	}
 
-	if c.Storage == nil {
-		return nil, errors.New("server: storage cannot be nil")
-	}
-	if len(c.SupportedResponseTypes) == 0 {
-		c.SupportedResponseTypes = []string{responseTypeCode}
-	}
+	logger := logrus.New()
+	logger.Out = ioutil.Discard
 
-	supported := make(map[string]bool)
-	for _, respType := range c.SupportedResponseTypes {
-		switch respType {
-		case responseTypeCode, responseTypeIDToken, responseTypeToken:
-		default:
-			return nil, fmt.Errorf("unsupported response_type %q", respType)
-		}
-		supported[respType] = true
-	}
-
-	tmpls, err := loadTemplates(c.Issuer, "", c.Issuer, nil, nil, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("server: failed to load web templates: %v", err)
-	}
-
-	now := c.Now
-	if now == nil {
-		now = time.Now
-	}
+	reg := prometheus.NewRegistry()
 
 	s := &Server{
-		issuerURL:              *issuerURL,
-		connectors:             make(map[string]Connector),
-		storage:                c.Storage,
-		supportedResponseTypes: supported,
-		idTokensValidFor:       value(c.IDTokensValidFor, 24*time.Hour),
-		authRequestsValidFor:   value(c.AuthRequestsValidFor, 24*time.Hour),
-		skipApproval:           c.SkipApprovalScreen,
-		now:                    now,
-		templates:              tmpls,
-		logger:                 c.Logger,
+		issuerURL:              *issURL,
+		connectors:             connectors,
+		storage:                storage,
+		idTokensValidFor:       24 * time.Hour,
+		authRequestsValidFor:   24 * time.Hour,
+		now:                    time.Now,
+		logger:                 logger,
+		registry:               reg,
+		supportedResponseTypes: map[string]bool{responseTypeCode: true},
+		signer:                 signer,
+		clients:                clients,
+	}
+
+	for _, o := range opts {
+		if err := o(s); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.templates == nil {
+		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String(), nil, nil, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("server: failed to load web templates: %v", err)
+		}
+		s.templates = tmpls
 	}
 
 	requestCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -239,7 +248,7 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 		Help: "Count of all HTTP requests.",
 	}, []string{"handler", "code", "method"})
 
-	err = c.PrometheusRegistry.Register(requestCounter)
+	err = s.registry.Register(requestCounter)
 	if err != nil {
 		return nil, fmt.Errorf("server: Failed to register Prometheus HTTP metrics: %v", err)
 	}
@@ -253,22 +262,22 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 
 	r := mux.NewRouter()
 	handle := func(p string, h http.Handler) {
-		r.Handle(path.Join(issuerURL.Path, p), instrumentHandlerCounter(p, h))
+		r.Handle(path.Join(s.issuerURL.Path, p), instrumentHandlerCounter(p, h))
 	}
 	handleFunc := func(p string, h http.HandlerFunc) {
 		handle(p, h)
 	}
 	handlePrefix := func(p string, h http.Handler) {
-		prefix := path.Join(issuerURL.Path, p)
+		prefix := path.Join(s.issuerURL.Path, p)
 		r.PathPrefix(prefix).Handler(http.StripPrefix(prefix, h))
 	}
 	handleWithCORS := func(p string, h http.HandlerFunc) {
 		var handler http.Handler = h
-		if len(c.AllowedOrigins) > 0 {
-			corsOption := handlers.AllowedOrigins(c.AllowedOrigins)
+		if len(s.allowedOrigins) > 0 {
+			corsOption := handlers.AllowedOrigins(s.allowedOrigins)
 			handler = handlers.CORS(corsOption)(handler)
 		}
-		r.Handle(path.Join(issuerURL.Path, p), instrumentHandlerCounter(p, handler))
+		r.Handle(path.Join(s.issuerURL.Path, p), instrumentHandlerCounter(p, handler))
 	}
 	r.NotFoundHandler = http.HandlerFunc(http.NotFound)
 
@@ -287,6 +296,10 @@ func newServer(_ context.Context, c Config) (*Server, error) {
 	handleFunc("/approval", s.handleApproval)
 	handlePrefix("/static", http.FileServer(webStatic))
 	s.mux = r
+
+	if err := s.initConnectors(); err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }

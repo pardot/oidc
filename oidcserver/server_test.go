@@ -25,7 +25,6 @@ import (
 	"github.com/heroku/deci/signer"
 	"github.com/heroku/deci/storage/disk"
 	"github.com/kylelemons/godebug/pretty"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	jose "gopkg.in/square/go-jose.v2"
@@ -77,7 +76,7 @@ var logger = &logrus.Logger{
 	Level:     logrus.DebugLevel,
 }
 
-func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Config)) (*httptest.Server, *Server) {
+func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)) (*httptest.Server, *Server) {
 	t.Helper()
 
 	var server *Server
@@ -95,29 +94,6 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 		t.Fatal(err)
 	}
 
-	config := Config{
-		Issuer:  s.URL,
-		Storage: stor,
-		Web: WebConfig{
-			Dir: "../web",
-		},
-		Logger:             logger,
-		PrometheusRegistry: prometheus.NewRegistry(),
-	}
-	if updateConfig != nil {
-		updateConfig(&config)
-	}
-	s.URL = config.Issuer
-
-	if server, err = newServer(ctx, config); err != nil {
-		t.Fatal(err)
-	}
-	server.connectors = map[string]Connector{"mock": newMockConnector()}
-	if err := server.initConnectors(); err != nil {
-		t.Fatal(err)
-	}
-	server.skipApproval = true // Don't prompt for approval, just immediately redirect with code.
-
 	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: testKey}
 	verificationKeys := []jose.JSONWebKey{
 		{
@@ -127,7 +103,27 @@ func newTestServer(ctx context.Context, t *testing.T, updateConfig func(c *Confi
 			Use:       "sig",
 		},
 	}
-	server.signer = signer.NewStatic(signingKey, verificationKeys)
+	signer := signer.NewStatic(signingKey, verificationKeys)
+
+	connectors := map[string]Connector{"mock": newMockConnector()}
+
+	// make the updater into an option, so we can change the server a bit before
+	// the constructor set up routes and the like.
+	var usOpt ServerOption = func(svr *Server) error {
+		if updateServer != nil {
+			updateServer(svr)
+			s.URL = svr.issuerURL.String()
+		}
+		return nil
+	}
+
+	if server, err = New(s.URL, stor, signer, connectors, nil, WithLogger(logger), WithSkipApprovalScreen(true), usOpt); err != nil {
+		t.Fatal(err)
+	}
+
+	// update this, in case the updateServer changes the issuer
+	// log.Printf("update url to %s", server.issuerURL.String())
+	// s.URL = server.issuerURL.String()
 
 	return s, server
 }
@@ -142,8 +138,8 @@ func TestDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, _ := newTestServer(ctx, t, func(c *Config) {
-		c.Issuer = c.Issuer + "/non-root-path"
+	httpServer, _ := newTestServer(ctx, t, func(s *Server) {
+		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
 	})
 	defer httpServer.Close()
 
@@ -449,10 +445,10 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			defer cancel()
 
 			// Setup a dex server.
-			httpServer, s := newTestServer(ctx, t, func(c *Config) {
-				c.Issuer = c.Issuer + "/non-root-path"
-				c.Now = now
-				c.IDTokensValidFor = idTokensValidFor
+			httpServer, s := newTestServer(ctx, t, func(s *Server) {
+				s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
+				s.now = now
+				s.idTokensValidFor = idTokensValidFor
 			})
 			defer httpServer.Close()
 
@@ -575,9 +571,9 @@ func TestOAuth2ImplicitFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
+	httpServer, s := newTestServer(ctx, t, func(s *Server) {
 		// Enable support for the implicit flow.
-		c.SupportedResponseTypes = []string{"code", "token", "id_token"}
+		s.supportedResponseTypes = map[string]bool{"code": true, "token": true, "id_token": true}
 	})
 	defer httpServer.Close()
 
@@ -711,8 +707,8 @@ func TestCrossClientScopes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
-		c.Issuer = c.Issuer + "/non-root-path"
+	httpServer, s := newTestServer(ctx, t, func(s *Server) {
+		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
 	})
 	defer httpServer.Close()
 
@@ -834,8 +830,8 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
-		c.Issuer = c.Issuer + "/non-root-path"
+	httpServer, s := newTestServer(ctx, t, func(s *Server) {
+		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
 	})
 	defer httpServer.Close()
 
@@ -966,8 +962,8 @@ func TestRefreshTokenFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(c *Config) {
-		c.Now = now
+	httpServer, s := newTestServer(ctx, t, func(s *Server) {
+		s.now = now
 	})
 	defer httpServer.Close()
 
