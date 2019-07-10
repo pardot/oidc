@@ -44,7 +44,7 @@ func join(base, path string) string {
 }
 
 // loadTemplates parses the expected templates from the provided directory.
-func loadTemplates(issuer, logoURL, issuerURL string, loginTmpl, approvalTmpl, oobTmpl, errorTmpl *template.Template) (*templates, error) {
+func loadTemplates(issuer, logoURL, issuerURL string) (*templates, error) {
 	funcs := map[string]interface{}{
 		"issuer": func() string { return issuer },
 		"logo":   func() string { return logoURL },
@@ -52,55 +52,24 @@ func loadTemplates(issuer, logoURL, issuerURL string, loginTmpl, approvalTmpl, o
 		"lower":  strings.ToLower,
 	}
 
-	if loginTmpl == nil {
-		ts, err := webTemplates.FindString(tmplLogin)
-		if err != nil {
-			return nil, err
-		}
-		loginTmpl, err = template.New("").Funcs(funcs).Parse(ts)
-		if err != nil {
-			return nil, err
-		}
-	}
+	tmpls := template.New("").Funcs(funcs)
 
-	if approvalTmpl == nil {
-		ts, err := webTemplates.FindString(tmplApproval)
+	for _, tf := range webTemplates.List() {
+		tb, err := webTemplates.FindString(tf)
 		if err != nil {
 			return nil, err
 		}
-		approvalTmpl, err = template.New("").Funcs(funcs).Parse(ts)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if oobTmpl == nil {
-		ts, err := webTemplates.FindString(tmplOOB)
-		if err != nil {
-			return nil, err
-		}
-		oobTmpl, err = template.New("").Funcs(funcs).Parse(ts)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if errorTmpl == nil {
-		ts, err := webTemplates.FindString(tmplError)
-		if err != nil {
-			return nil, err
-		}
-		errorTmpl, err = template.New("").Funcs(funcs).Parse(ts)
+		_, err = tmpls.New(tf).Parse(tb)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return &templates{
-		loginTmpl:    loginTmpl,
-		approvalTmpl: approvalTmpl,
-		oobTmpl:      oobTmpl,
-		errorTmpl:    errorTmpl,
+		loginTmpl:    tmpls.Lookup(tmplLogin),
+		approvalTmpl: tmpls.Lookup(tmplApproval),
+		oobTmpl:      tmpls.Lookup(tmplOOB),
+		errorTmpl:    tmpls.Lookup(tmplError),
 	}, nil
 }
 

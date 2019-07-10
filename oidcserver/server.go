@@ -3,7 +3,6 @@ package oidcserver
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -176,16 +175,16 @@ func WithLogger(logger logrus.FieldLogger) ServerOption {
 
 // WithTemplates will use the provided template items for rendering these pages,
 // over the built-in. See ./web/templates for examples.
-func WithTemplates(loginTemplate, approvalTemplate, oobTemplate, errorTemplate *template.Template) ServerOption {
-	return ServerOption(func(s *Server) error {
-		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String(), loginTemplate, approvalTemplate, oobTemplate, errorTemplate)
-		if err != nil {
-			return fmt.Errorf("server: failed to load web templates: %v", err)
-		}
-		s.templates = tmpls
-		return nil
-	})
-}
+// func WithTemplates(loginTemplate, approvalTemplate, oobTemplate, errorTemplate *template.Template) ServerOption {
+// 	return ServerOption(func(s *Server) error {
+// 		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String(), loginTemplate, approvalTemplate, oobTemplate, errorTemplate)
+// 		if err != nil {
+// 			return fmt.Errorf("server: failed to load web templates: %v", err)
+// 		}
+// 		s.templates = tmpls
+// 		return nil
+// 	})
+// }
 
 func WithPrometheusRegistry(registry *prometheus.Registry) ServerOption {
 	return ServerOption(func(s *Server) error {
@@ -236,7 +235,7 @@ func New(issuer string, storage storage.Storage, signer Signer, connectors map[s
 	}
 
 	if s.templates == nil {
-		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String(), nil, nil, nil, nil)
+		tmpls, err := loadTemplates(s.issuerURL.String(), "", s.issuerURL.String())
 		if err != nil {
 			return nil, fmt.Errorf("server: failed to load web templates: %v", err)
 		}

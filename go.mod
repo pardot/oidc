@@ -3,10 +3,11 @@ module github.com/heroku/deci
 go 1.12
 
 require (
+	github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc // indirect
+	github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf // indirect
 	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973 // indirect
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/felixge/httpsnoop v1.0.0
-	github.com/gobuffalo/packr v1.30.1 // indirect
 	github.com/gobuffalo/packr/v2 v2.5.1
 	github.com/gogo/protobuf v1.2.0 // indirect
 	github.com/golang/mock v1.1.1 // indirect
@@ -27,5 +28,6 @@ require (
 	go.etcd.io/bbolt v1.3.3
 	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
 	google.golang.org/appengine v1.2.0 // indirect
+	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/square/go-jose.v2 v2.1.9
 )
