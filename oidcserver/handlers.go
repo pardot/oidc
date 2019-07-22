@@ -128,7 +128,7 @@ func (s *Server) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusInternalServerError, "Internal Error.")
 		return
 	}
-	if _, err := s.storage.PutWithExpiry(r.Context(), authReqKeyspace, authReq.Id, "", authReq, authExp); err != nil {
+	if _, err := s.storage.PutWithExpiry(r.Context(), authReqKeyspace, authReq.Id, 0, authReq, authExp); err != nil {
 		s.logger.Errorf("Failed to create authorization request: %v", err)
 		s.renderError(w, http.StatusInternalServerError, "Failed to connect to the database.")
 		return
@@ -304,7 +304,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 				RedirectUri:   authReq.RedirectUri,
 				ConnectorData: authReq.ConnectorData,
 			}
-			if _, err := s.storage.PutWithExpiry(r.Context(), authCodeKeyspace, code.Id, "", code, exp); err != nil {
+			if _, err := s.storage.PutWithExpiry(r.Context(), authCodeKeyspace, code.Id, 0, code, exp); err != nil {
 				s.logger.Errorf("Failed to create auth code: %v", err)
 				s.renderError(w, http.StatusInternalServerError, "Internal server error.")
 				return
@@ -530,7 +530,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 			return
 		}
 
-		if _, err := s.storage.Put(r.Context(), refreshTokenKeyspace, refresh.Id, "", refresh); err != nil {
+		if _, err := s.storage.Put(r.Context(), refreshTokenKeyspace, refresh.Id, 0, refresh); err != nil {
 			s.logger.Errorf("failed to create refresh token: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 			return
@@ -576,7 +576,7 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 
 			// Create a new OfflineSession object for the user and add a reference object for
 			// the newly received refreshtoken.
-			if _, err := s.storage.Put(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), "", offlineSessions); err != nil {
+			if _, err := s.storage.Put(r.Context(), offlineSessionsKeyspace, offlineSessionID(refresh.Claims.UserId, refresh.ConnectorId), 0, offlineSessions); err != nil {
 				s.logger.Errorf("failed to create offline session: %v", err)
 				s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 				deleteToken = true

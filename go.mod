@@ -16,6 +16,7 @@ require (
 	github.com/gorilla/handlers v1.4.0
 	github.com/gorilla/mux v0.0.0-20180903154305-9e1f5955c0d2
 	github.com/kylelemons/godebug v0.0.0-20170820004349-d65d576e9348
+	github.com/lib/pq v1.2.0
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect

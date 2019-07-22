@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -58,9 +57,8 @@ func New(path string, mode os.FileMode) (*Storage, error) {
 	return &Storage{db: db, Now: time.Now}, nil
 }
 
-func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Message) (version string, err error) {
-	var vers string
-
+func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Message) (version int64, err error) {
+	var vers int64
 	err = s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(keyspace))
 		if b == nil {
@@ -77,25 +75,25 @@ func (s *Storage) Get(_ context.Context, keyspace, key string, into proto.Messag
 		if r.Expires != nil && r.Expires.Before(s.Now()) {
 			return &errNotFound{fmt.Errorf("%s/%s has expired", keyspace, key)}
 		}
-		vers = strconv.FormatInt(r.Version, 10)
 		if err := proto.Unmarshal(r.Data, into); err != nil {
 			return err
 		}
+		vers = r.Version
 		return nil
 	})
 
 	return vers, err
 }
 
-func (s *Storage) Put(ctx context.Context, keyspace, key, version string, obj proto.Message) (newVersion string, err error) {
+func (s *Storage) Put(ctx context.Context, keyspace, key string, version int64, obj proto.Message) (newVersion int64, err error) {
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, nil)
 }
 
-func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires time.Time) (newVersion string, err error) {
+func (s *Storage) PutWithExpiry(ctx context.Context, keyspace, key string, version int64, obj proto.Message, expires time.Time) (newVersion int64, err error) {
 	return s.putWithOptionalExpiry(ctx, keyspace, key, version, obj, &expires)
 }
 
-func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, version string, obj proto.Message, expires *time.Time) (newVersion string, err error) {
+func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key string, version int64, obj proto.Message, expires *time.Time) (newVersion int64, err error) {
 	var nvers int64
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(keyspace))
@@ -123,19 +121,15 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 			}
 		}
 
-		if existing && version == "" {
+		if existing && version == 0 {
 			return &errConflict{errors.New("Existing item found, but no version specified for put")}
 		}
-		if !existing && version != "" {
+		if !existing && version != 0 {
 			return &errConflict{errors.New("Version specified for put, but no item specified")}
 		}
 		if existing {
-			newvers, err := strconv.ParseInt(version, 10, 64)
-			if err != nil {
-				return err
-			}
-			if newvers != existvers {
-				return &errConflict{fmt.Errorf("Update conflict: want vers %d, got %d", existvers, newvers)}
+			if version != existvers {
+				return &errConflict{fmt.Errorf("Update conflict: want vers %d, got %d", existvers, version)}
 			}
 		}
 
@@ -158,9 +152,9 @@ func (s *Storage) putWithOptionalExpiry(ctx context.Context, keyspace, key, vers
 		return b.Put([]byte(key), rb)
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
-	return strconv.FormatInt(nvers, 10), nil
+	return nvers, nil
 }
 
 func (s *Storage) List(_ context.Context, keyspace string) ([]string, error) {

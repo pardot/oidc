@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"database/sql"
 	"encoding/base32"
 	"errors"
 	"fmt"
@@ -12,23 +13,30 @@ import (
 
 	"github.com/heroku/deci/oidcserver"
 	"github.com/heroku/deci/signer"
-	"github.com/heroku/deci/storage/disk"
+	sqlstor "github.com/heroku/deci/storage/sql"
+	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
 	jose "gopkg.in/square/go-jose.v2"
 )
 
 func main() {
+	ctx := context.Background()
 	l := logrus.New()
 
 	var (
 		issuer = kingpin.Flag("issuer", "Issuer URL to serve as").Default("http://127.0.0.1:5556/dex").String()
-		dbPath = kingpin.Flag("db", "Database file to store state in").Default("./db/deci-simple.db").String()
+		dbURL  = kingpin.Flag("db", "URL to Postgres database").Default("postgres://localhost/deci_dev?sslmode=disable").String()
 		listen = kingpin.Flag("listen", "Addr to listen on").Default("127.0.0.1:5556").String()
 	)
 	kingpin.Parse()
 
-	stor, err := disk.New(*dbPath, 0644)
+	db, err := sql.Open("postgres", *dbURL)
+	if err != nil {
+		l.WithError(err).Fatal("Failed to open SQL connection")
+	}
+
+	stor, err := sqlstor.New(ctx, db)
 	if err != nil {
 		l.WithError(err).Fatal("Failed to initialize storage")
 	}
