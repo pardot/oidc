@@ -8,7 +8,7 @@ import (
 
 // newMockConnector returns a mock connector which requires no user interaction. It always returns
 // the same (fake) identity.
-func newMockConnector() Connector {
+func newMockConnector(authenticator Authenticator) Connector {
 	return &mockConnector{
 		Identity: Identity{
 			UserID:        "0-385-28089-0",
@@ -18,6 +18,7 @@ func newMockConnector() Connector {
 			Groups:        []string{"authors"},
 			ConnectorData: connectorData,
 		},
+		authenticator: authenticator,
 	}
 }
 
@@ -30,22 +31,21 @@ type mockConnector struct {
 	// The returned identity.
 	Identity Identity
 
-	auth Authenticator
-}
-
-func (m *mockConnector) Initialize(auth Authenticator) error {
-	m.auth = auth
-	return nil
+	authenticator Authenticator
 }
 
 func (m *mockConnector) LoginPage(w http.ResponseWriter, r *http.Request, lr LoginRequest) {
 	// just auto mark the session as good, and redirect the user to the final page
-	ret, err := m.auth.Authenticate(r.Context(), lr.AuthID, m.Identity)
+	ret, err := m.authenticator.Authenticate(r.Context(), lr.AuthID, m.Identity)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Internal error: %v", err), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, ret, http.StatusSeeOther)
+}
+
+func (m *mockConnector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 }
 
 var connectorData = []byte("foobar")

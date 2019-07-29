@@ -166,7 +166,7 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	conn, ok := s.connectors[connID]
 	if !ok {
 		s.logger.Error("Failed to create authorization request: connector does not exist")
-		s.renderError(w, http.StatusBadRequest, "Requested resource does not exist")
+		s.renderError(w, http.StatusNotFound, "Requested resource does not exist")
 		return
 	}
 

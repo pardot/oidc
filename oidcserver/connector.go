@@ -30,15 +30,6 @@ type Identity struct {
 	ConnectorData []byte
 }
 
-// Authenticator can be used by connectors to access metadata about the identity
-// backend, and to mark an authentication flow as successful.
-type Authenticator interface {
-	// Authenticate should be called on a successful authentication flow to set
-	// the desired identity for the flow ID. The user should then be redirected
-	// to returned URL to complete the flow
-	Authenticate(ctx context.Context, authID string, ident Identity) (returnURL string, err error)
-}
-
 // LoginRequest encapsulates the information passed in for this SSO request.
 type LoginRequest struct {
 	// AuthID is the unique identifier for this access request. It is assigned
@@ -50,11 +41,6 @@ type LoginRequest struct {
 
 // Connector is used to actually manage the end user authentication
 type Connector interface {
-	// Initialize will be called before the connectors first authentication
-	// flow. This passes ann Authenticator which the connector can use to assign
-	// an identity to the authorization flow, and determine the final URL to
-	// send the user to
-	Initialize(auth Authenticator) error
 	// LoginPage is called at the start of an authentication flow. This method
 	// can render/return whatever it wants and run the user through any
 	// arbitrary intermediate pages. The only requirement is that it threads the

@@ -105,8 +105,6 @@ func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)
 	}
 	signer := signer.NewStatic(signingKey, verificationKeys)
 
-	connectors := map[string]Connector{"mock": newMockConnector()}
-
 	// make the updater into an option, so we can change the server a bit before
 	// the constructor set up routes and the like.
 	var usOpt ServerOption = func(svr *Server) error {
@@ -118,7 +116,12 @@ func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)
 		return nil
 	}
 
-	if server, err = New(s.URL, stor, signer, connectors, nil, WithLogger(logger), WithSkipApprovalScreen(true), usOpt); err != nil {
+	server, err = New(s.URL, stor, signer, nil, WithLogger(logger), WithSkipApprovalScreen(true), usOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.AddConnector("mock", newMockConnector(server.Authenticator())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -139,9 +142,7 @@ func TestDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, _ := newTestServer(ctx, t, func(s *Server) {
-		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
-	})
+	httpServer, _ := newTestServer(ctx, t, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -447,7 +448,6 @@ func TestOAuth2CodeFlow(t *testing.T) {
 
 			// Setup a dex server.
 			httpServer, s := newTestServer(ctx, t, func(s *Server) {
-				s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
 				s.now = now
 				s.idTokensValidFor = idTokensValidFor
 			})
@@ -708,9 +708,7 @@ func TestCrossClientScopes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(s *Server) {
-		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
-	})
+	httpServer, s := newTestServer(ctx, t, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -831,9 +829,7 @@ func TestCrossClientScopesWithAzpInAudienceByDefault(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	httpServer, s := newTestServer(ctx, t, func(s *Server) {
-		s.issuerURL.Path = s.issuerURL.Path + "/non-root-path"
-	})
+	httpServer, s := newTestServer(ctx, t, nil)
 	defer httpServer.Close()
 
 	p, err := oidc.NewProvider(ctx, httpServer.URL)

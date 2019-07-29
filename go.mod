@@ -27,8 +27,7 @@ require (
 	github.com/prometheus/procfs v0.0.0-20180920065004-418d78d0b9a7 // indirect
 	github.com/sirupsen/logrus v1.4.2
 	go.etcd.io/bbolt v1.3.3
-	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
-	google.golang.org/appengine v1.2.0 // indirect
+	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/square/go-jose.v2 v2.1.9
 )

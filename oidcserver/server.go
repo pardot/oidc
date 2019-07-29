@@ -94,7 +94,7 @@ type Server struct {
 
 	storage storage.Storage
 
-	mux http.Handler
+	mux *mux.Router
 
 	templates *templates
 
@@ -203,7 +203,7 @@ func WithAllowedOrigins(origins []string) ServerOption {
 	})
 }
 
-func New(issuer string, storage storage.Storage, signer Signer, connectors map[string]Connector, clients ClientSource, opts ...ServerOption) (*Server, error) {
+func New(issuer string, storage storage.Storage, signer Signer, clients ClientSource, opts ...ServerOption) (*Server, error) {
 	issURL, err := url.Parse(issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
@@ -216,7 +216,7 @@ func New(issuer string, storage storage.Storage, signer Signer, connectors map[s
 
 	s := &Server{
 		issuerURL:              *issURL,
-		connectors:             connectors,
+		connectors:             make(map[string]Connector),
 		storage:                storage,
 		idTokensValidFor:       24 * time.Hour,
 		authRequestsValidFor:   24 * time.Hour,
@@ -261,14 +261,13 @@ func New(issuer string, storage storage.Storage, signer Signer, connectors map[s
 
 	r := mux.NewRouter()
 	handle := func(p string, h http.Handler) {
-		r.Handle(path.Join(s.issuerURL.Path, p), instrumentHandlerCounter(p, h))
+		r.Handle(p, instrumentHandlerCounter(p, h))
 	}
 	handleFunc := func(p string, h http.HandlerFunc) {
 		handle(p, h)
 	}
 	handlePrefix := func(p string, h http.Handler) {
-		prefix := path.Join(s.issuerURL.Path, p)
-		r.PathPrefix(prefix).Handler(http.StripPrefix(prefix, h))
+		r.PathPrefix(p).Handler(http.StripPrefix(p, h))
 	}
 	handleWithCORS := func(p string, h http.HandlerFunc) {
 		var handler http.Handler = h
@@ -276,7 +275,7 @@ func New(issuer string, storage storage.Storage, signer Signer, connectors map[s
 			corsOption := handlers.AllowedOrigins(s.allowedOrigins)
 			handler = handlers.CORS(corsOption)(handler)
 		}
-		r.Handle(path.Join(s.issuerURL.Path, p), instrumentHandlerCounter(p, handler))
+		r.Handle(p, instrumentHandlerCounter(p, handler))
 	}
 	r.NotFoundHandler = http.HandlerFunc(http.NotFound)
 
@@ -296,19 +295,21 @@ func New(issuer string, storage storage.Storage, signer Signer, connectors map[s
 	handlePrefix("/static", http.FileServer(webStatic))
 	s.mux = r
 
-	if err := s.initConnectors(); err != nil {
-		return nil, err
-	}
-
 	return s, nil
 }
 
-func (s *Server) initConnectors() error {
-	for _, c := range s.connectors {
-		if err := c.Initialize(&authenticator{s: s}); err != nil {
-			return err
-		}
-	}
+// Authenticator returns an Authenticator associated with this Server.
+// Connectors should call Authenticate on the returned Authenticator to finalize
+// the login flow.
+func (s *Server) Authenticator() Authenticator {
+	return &authenticator{s: s}
+}
+
+// AddConnector registers the connector with the server. AddConnector must not
+// be called after the Server begins handling HTTP requests.
+func (s *Server) AddConnector(id string, connector Connector) error {
+	s.connectors[id] = connector
+
 	return nil
 }
 
