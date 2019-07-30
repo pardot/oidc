@@ -14,6 +14,9 @@ type Authenticator interface {
 	// Authenticate associates the user's identity with the given authID, then
 	// returns final redirect URL.
 	Authenticate(ctx context.Context, authID string, ident Identity) (returnURL string, err error)
+
+	// LoginRequest loads the login request information for a given authID.
+	LoginRequest(ctx context.Context, authID string) (LoginRequest, error)
 }
 
 // authenticator is a thin wrapper for the main Server type, to avoid exposing
@@ -54,4 +57,17 @@ func (a *authenticator) Authenticate(ctx context.Context, authID string, ident I
 		authReq.ConnectorId, claims.Username, email, claims.Groups)
 
 	return a.s.absURL("/approval") + "?req=" + authReq.Id, nil
+}
+
+func (a *authenticator) LoginRequest(ctx context.Context, authID string) (LoginRequest, error) {
+	authReq := &storagepb.AuthRequest{}
+	_, err := a.s.storage.Get(ctx, authReqKeyspace, authID, authReq)
+	if err != nil {
+		return LoginRequest{}, err
+	}
+
+	return LoginRequest{
+		AuthID: authID,
+		Scopes: parseScopes(authReq.Scopes),
+	}, nil
 }
