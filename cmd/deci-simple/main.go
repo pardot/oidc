@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/base32"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -52,15 +51,13 @@ func main() {
 	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: privs.Keys[0]}
 	signer := signer.NewStatic(signingKey, pubs.Keys)
 
-	clients := &simpleClientSource{
-		Clients: map[string]*oidcserver.Client{
-			"example-app": {
-				ID:           "example-app",
-				Secret:       "ZXhhbXBsZS1hcHAtc2VjcmV0",
-				RedirectURIs: []string{"http://127.0.0.1:5555/callback"},
-			},
+	clients := oidcserver.NewStaticClientSource([]*oidcserver.Client{
+		{
+			ID:           "example-app",
+			Secret:       "ZXhhbXBsZS1hcHAtc2VjcmV0",
+			RedirectURIs: []string{"http://127.0.0.1:5555/callback"},
 		},
-	}
+	})
 
 	server, err := oidcserver.New((*issuer).String(), stor, signer, clients, oidcserver.WithLogger(l))
 	if err != nil {
@@ -208,21 +205,6 @@ func (c *oidcConnector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, url, http.StatusSeeOther)
-}
-
-type simpleClientSource struct {
-	Clients map[string]*oidcserver.Client
-}
-
-func (s *simpleClientSource) GetClient(id string) (*oidcserver.Client, error) {
-	if s.Clients == nil {
-		return nil, errors.New("Clients not initialized")
-	}
-	c, ok := s.Clients[id]
-	if !ok {
-		return nil, fmt.Errorf("Client %q not found", id)
-	}
-	return c, nil
 }
 
 // mustGenKeyset returns a set of public and private keys, with numKeys in each.

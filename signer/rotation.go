@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -17,8 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/square/go-jose.v2"
 )
-
-var errAlreadyRotated = errors.New("keys already rotated by another server instance")
 
 const (
 	keysPrefix = "signer-keys"
@@ -109,16 +106,13 @@ func NewRotating(l logrus.FieldLogger, storage storage.Storage, strategy Rotatio
 //
 // The method blocks until after the first attempt to rotate keys has completed. That way
 // healthy storages will return from this call with valid keys.
-func (r *RotatingSigner) Start(ctx context.Context) {
+func (r *RotatingSigner) Start(ctx context.Context) error {
 	// Try to rotate immediately so properly configured storages will have keys.
 	if err := r.rotate(); err != nil {
-		if err == errAlreadyRotated {
-			r.logger.Infof("Key rotation not needed: %v", err)
-		} else {
-			r.logger.Errorf("failed to rotate keys: %v", err)
-		}
+		return err
 	}
 
+	r.logger.Info("starting key rotation loop")
 	go func() {
 		for {
 			select {
@@ -126,11 +120,13 @@ func (r *RotatingSigner) Start(ctx context.Context) {
 				return
 			case <-time.After(time.Second * 30):
 				if err := r.rotate(); err != nil {
-					r.logger.Errorf("failed to rotate keys: %v", err)
+					r.logger.WithError(err).Error("failed to rotate keys")
 				}
 			}
 		}
 	}()
+
+	return nil
 }
 
 func (r *RotatingSigner) rotate() error {
