@@ -294,7 +294,7 @@ func (s *Server) sendCodeResponse(w http.ResponseWriter, r *http.Request, authRe
 				return
 			}
 			code = &storagepb.AuthCode{
-				Id:            NewID(),
+				Id:            storage.NewID(),
 				ClientId:      authReq.ClientId,
 				ConnectorId:   authReq.ConnectorId,
 				Nonce:         authReq.Nonce,
@@ -509,8 +509,8 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client *
 			return
 		}
 		refresh := &storagepb.RefreshToken{
-			Id:            NewID(),
-			Token:         NewID(),
+			Id:            storage.NewID(),
+			Token:         storage.NewID(),
 			ClientId:      authCode.ClientId,
 			ConnectorId:   authCode.ConnectorId,
 			Scopes:        authCode.Scopes,
@@ -734,7 +734,7 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 
 	newToken := &internal.RefreshToken{
 		RefreshId: refresh.Id,
-		Token:     NewID(),
+		Token:     storage.NewID(),
 	}
 	rawNewToken, err := internal.Marshal(newToken)
 	if err != nil {

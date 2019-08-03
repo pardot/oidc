@@ -18,6 +18,7 @@ import (
 
 	"github.com/heroku/deci/oidcserver/internal"
 	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	"github.com/heroku/deci/storage"
 	jose "gopkg.in/square/go-jose.v2"
 )
 
@@ -215,7 +216,7 @@ type federatedIDClaims struct {
 }
 
 func (s *Server) newAccessToken(clientID string, claims *storagepb.Claims, scopes []string, nonce, connID string) (accessToken string, err error) {
-	idToken, _, err := s.newIDToken(clientID, claims, scopes, nonce, NewID(), connID)
+	idToken, _, err := s.newIDToken(clientID, claims, scopes, nonce, storage.NewID(), connID)
 	return idToken, err
 }
 
@@ -440,7 +441,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req *storagepb.Auth
 	}
 
 	return &storagepb.AuthRequest{
-		Id:                  NewID(),
+		Id:                  storage.NewID(),
 		ClientId:            client.ID,
 		State:               state,
 		Nonce:               nonce,
