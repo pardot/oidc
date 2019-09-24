@@ -34,7 +34,10 @@ func TestSigner(t *testing.T) {
 			signer: func(t *testing.T) signer {
 				t.Helper()
 
-				signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: testKey}
+				signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: &jose.JSONWebKey{
+					Key:   testKey,
+					KeyID: "testkey",
+				}}
 
 				verificationKeys := []jose.JSONWebKey{
 					{
@@ -91,7 +94,10 @@ func TestSigner(t *testing.T) {
 							return "", err
 						}
 
-						signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, nil)
+						signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: &jose.JSONWebKey{
+							Key:   key,
+							KeyID: "badkey",
+						}}, nil)
 						if err != nil {
 							return "", err
 						}
@@ -112,6 +118,19 @@ func TestSigner(t *testing.T) {
 					jwt, err := tc.tokenGenerator()
 					if err != nil {
 						t.Fatal(err)
+					}
+
+					jws, err := jose.ParseSigned(string(jwt))
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					if len(jws.Signatures) != 1 {
+						t.Fatalf("want one signature, got %d", len(jws.Signatures))
+					}
+
+					if jws.Signatures[0].Header.KeyID == "" {
+						t.Error("Signed token has empty Key ID")
 					}
 
 					_, err = signer.VerifySignature(context.Background(), jwt)

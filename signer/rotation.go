@@ -274,7 +274,7 @@ func (r *RotatingSigner) Sign(ctx context.Context, data []byte) ([]byte, error) 
 	}
 	sk := jose.SigningKey{
 		Algorithm: jose.SignatureAlgorithm(swk.Algorithm),
-		Key:       swk.Key,
+		Key:       swk,
 	}
 	return sign(ctx, sk, data)
 }
