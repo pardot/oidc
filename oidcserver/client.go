@@ -31,7 +31,6 @@ type Client struct {
 	LogoURL string `json:"logoURL" yaml:"logoURL"`
 }
 
-
 // ClientSource can be queried to get information about an oauth2 client.
 type ClientSource interface {
 	// GetClient returns information about the given client ID. It will be

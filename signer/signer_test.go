@@ -62,7 +62,7 @@ func TestSigner(t *testing.T) {
 					now:      time.Now,
 					logger:   &logrus.Logger{Out: ioutil.Discard},
 				}
-				r.Start(ctx)
+				_ = r.Start(ctx)
 				return r
 			},
 		},
