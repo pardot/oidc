@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/heroku/deci/storage"
+	"github.com/pardot/deci/storage"
 )
 
 func TestStorage(t *testing.T) {

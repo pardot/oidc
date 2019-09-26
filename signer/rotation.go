@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/ptypes"
-	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
-	"github.com/heroku/deci/storage"
+	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
+	"github.com/pardot/deci/storage"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/square/go-jose.v2"
 )

@@ -11,9 +11,9 @@ import (
 	"net/http"
 
 	oidc "github.com/coreos/go-oidc"
-	"github.com/heroku/deci/oidcserver"
-	"github.com/heroku/deci/signer"
-	sqlstor "github.com/heroku/deci/storage/sql"
+	"github.com/pardot/deci/oidcserver"
+	"github.com/pardot/deci/signer"
+	sqlstor "github.com/pardot/deci/storage/sql"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"

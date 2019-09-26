@@ -13,7 +13,7 @@ import (
 	"github.com/felixge/httpsnoop"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/heroku/deci/storage"
+	"github.com/pardot/deci/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/square/go-jose.v2"

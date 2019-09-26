@@ -6,7 +6,7 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/heroku/deci/storage"
+	"github.com/pardot/deci/storage"
 	_ "github.com/lib/pq"
 )
 

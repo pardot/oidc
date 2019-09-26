@@ -22,9 +22,9 @@ import (
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
-	"github.com/heroku/deci/signer"
-	"github.com/heroku/deci/storage/disk"
 	"github.com/kylelemons/godebug/pretty"
+	"github.com/pardot/deci/signer"
+	"github.com/pardot/deci/storage/disk"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	jose "gopkg.in/square/go-jose.v2"

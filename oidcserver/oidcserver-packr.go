@@ -5,4 +5,4 @@
 // and any other packr generated files.
 package oidcserver
 
-import _ "github.com/heroku/deci/oidcserver/packrd"
+import _ "github.com/pardot/deci/oidcserver/packrd"

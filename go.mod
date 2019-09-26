@@ -1,6 +1,6 @@
-module github.com/heroku/deci
+module github.com/pardot/deci
 
-go 1.12
+go 1.13
 
 require (
 	github.com/coreos/go-oidc v2.0.0+incompatible

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
-	"github.com/heroku/deci/storage"
-	"github.com/heroku/deci/storage/disk"
+	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
+	"github.com/pardot/deci/storage"
+	"github.com/pardot/deci/storage/disk"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/square/go-jose.v2"
 )

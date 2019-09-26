@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
+	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
 )
 
 // Authenticator is capable of associating the user's identity with a given

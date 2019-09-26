@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heroku/deci/oidcserver/internal"
-	storagepb "github.com/heroku/deci/proto/deci/storage/v1beta1"
-	"github.com/heroku/deci/storage"
+	"github.com/pardot/deci/oidcserver/internal"
+	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
+	"github.com/pardot/deci/storage"
 	jose "gopkg.in/square/go-jose.v2"
 )
 
