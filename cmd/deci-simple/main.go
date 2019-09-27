@@ -11,10 +11,12 @@ import (
 	"net/http"
 
 	oidc "github.com/coreos/go-oidc"
+	_ "github.com/lib/pq"
 	"github.com/pardot/deci/oidcserver"
 	"github.com/pardot/deci/signer"
+	"github.com/pardot/deci/storage"
+	"github.com/pardot/deci/storage/memory"
 	sqlstor "github.com/pardot/deci/storage/sql"
-	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -26,9 +28,10 @@ func main() {
 	l := logrus.New()
 
 	var (
-		issuer = kingpin.Flag("issuer", "Issuer URL to serve as").Default("http://localhost:5556/dex").URL()
-		dbURL  = kingpin.Flag("db", "URL to Postgres database").Default("postgres://localhost/deci_dev?sslmode=disable").String()
-		listen = kingpin.Flag("listen", "Addr to listen on").Default("127.0.0.1:5556").String()
+		issuer      = kingpin.Flag("issuer", "Issuer URL to serve as").Default("http://localhost:5556").URL()
+		dbURL       = kingpin.Flag("db", "URL to Postgres database, e.g postgres://localhost/deci_dev?sslmode=disable. If empty, in-memory is used.").String()
+		listen      = kingpin.Flag("listen", "Addr to listen on").Default("127.0.0.1:5556").String()
+		skipConsent = kingpin.Flag("skip-consent", "Skip the default user consent screen").Default("true").Bool()
 
 		// OIDC connector options (optional)
 		oidcIssuer       = kingpin.Flag("oidc-issuer", "Upstream OIDC issuer URL").URL()
@@ -37,14 +40,19 @@ func main() {
 	)
 	kingpin.Parse()
 
-	db, err := sql.Open("postgres", *dbURL)
-	if err != nil {
-		l.WithError(err).Fatal("Failed to open SQL connection")
-	}
+	var stor storage.Storage
+	if *dbURL != "" {
+		db, err := sql.Open("postgres", *dbURL)
+		if err != nil {
+			l.WithError(err).Fatal("Failed to open SQL connection")
+		}
 
-	stor, err := sqlstor.New(ctx, db)
-	if err != nil {
-		l.WithError(err).Fatal("Failed to initialize storage")
+		stor, err = sqlstor.New(ctx, db)
+		if err != nil {
+			l.WithError(err).Fatal("Failed to initialize storage")
+		}
+	} else {
+		stor = memory.New()
 	}
 
 	privs, pubs := mustGenKeyset(2)
@@ -57,9 +65,17 @@ func main() {
 			Secret:       "ZXhhbXBsZS1hcHAtc2VjcmV0",
 			RedirectURIs: []string{"http://127.0.0.1:5555/callback"},
 		},
+		{
+			ID:     "openid-certification",
+			Secret: "openid-certification",
+			RedirectURIs: []string{
+				"https://op.certification.openid.net:61944/authz_cb",
+				"https://op.certification.openid.net:61944/authz_post",
+			},
+		},
 	})
 
-	server, err := oidcserver.New((*issuer).String(), stor, signer, clients, oidcserver.WithLogger(l))
+	server, err := oidcserver.New((*issuer).String(), stor, signer, clients, oidcserver.WithLogger(l), oidcserver.WithSkipApprovalScreen(*skipConsent))
 	if err != nil {
 		l.WithError(err).Fatal("Failed to construct server")
 	}

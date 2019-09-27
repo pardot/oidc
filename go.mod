@@ -1,5 +1,8 @@
 module github.com/pardot/deci
 
+// +heroku goVersion go1.13
+// +heroku install ./cmd/...
+
 go 1.13
 
 require (
