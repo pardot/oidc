@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/golang/protobuf/ptypes/wrappers"
 	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
 )
 
@@ -32,6 +33,10 @@ func (a *authenticator) Authenticate(ctx context.Context, authID string, ident I
 		Email:         ident.Email,
 		EmailVerified: ident.EmailVerified,
 		Groups:        ident.Groups,
+		Amr:           ident.AMR,
+	}
+	if ident.ACR != nil {
+		claims.Acr = &wrappers.StringValue{Value: *ident.ACR}
 	}
 
 	authReq := &storagepb.AuthRequest{}

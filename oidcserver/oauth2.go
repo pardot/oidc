@@ -205,6 +205,9 @@ type idTokenClaims struct {
 
 	Groups []string `json:"groups,omitempty"`
 
+	ACR *string  `json:"acr,omitempty"`
+	AMR []string `json:"amr,omitempty"`
+
 	Name string `json:"name,omitempty"`
 
 	FederatedIDClaims *federatedIDClaims `json:"federated_claims,omitempty"`
@@ -241,6 +244,10 @@ func (s *Server) newIDToken(clientID string, claims *storagepb.Claims, scopes []
 		Nonce:    nonce,
 		Expiry:   expiry.Unix(),
 		IssuedAt: issuedAt.Unix(),
+		AMR:      claims.Amr,
+	}
+	if claims.Acr != nil {
+		tok.ACR = &claims.Acr.Value
 	}
 
 	signingAlg, err := s.signer.SignerAlg(context.TODO())
@@ -334,6 +341,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req *storagepb.Auth
 	// Some clients, like the old go-oidc, provide extra whitespace. Tolerate this.
 	scopes := strings.Fields(q.Get("scope"))
 	responseTypes := strings.Fields(q.Get("response_type"))
+	acrValues := strings.Fields(q.Get("acr_values"))
 
 	client, err := s.clients.GetClient(clientID)
 	if err != nil {
@@ -449,6 +457,7 @@ func (s *Server) parseAuthorizationRequest(r *http.Request) (req *storagepb.Auth
 		Scopes:              scopes,
 		RedirectUri:         redirectURI,
 		ResponseTypes:       responseTypes,
+		AcrValues:           acrValues,
 	}, nil
 }
 

@@ -196,8 +196,9 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lr := LoginRequest{
-		AuthID: authReqID,
-		Scopes: parseScopes(authReq.Scopes),
+		AuthID:    authReqID,
+		Scopes:    parseScopes(authReq.Scopes),
+		ACRValues: authReq.AcrValues,
 	}
 
 	conn.LoginPage(w, r, lr)

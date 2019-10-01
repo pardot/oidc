@@ -23,6 +23,13 @@ type Identity struct {
 
 	Groups []string
 
+	// ACR should contain the value of the Authentication Context Class this
+	// requested was serviced with. OPTIONAL.
+	ACR *string
+	// AMR is the identifiers for authentication methods used in the
+	// authentication. OPTIONAL
+	AMR []string
+
 	// ConnectorData holds data used by the connector for subsequent requests after initial
 	// authentication, such as access tokens for upstream provides.
 	//
@@ -37,6 +44,12 @@ type LoginRequest struct {
 	AuthID string
 	// Scopes are the Oauth2 Scopes for OIDC requests.
 	Scopes Scopes
+
+	// ACRValues indicate the requested Authorization Context Classes. This is
+	// an _optional_ field, connectors can choose to ignore it. They are
+	// specified in preference order. If the connector can handle this, it
+	// should indicate the value used in the ACR field in the returned identity
+	ACRValues []string
 }
 
 // Connector is used to actually manage the end user authentication

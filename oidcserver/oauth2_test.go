@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
 	jose "gopkg.in/square/go-jose.v2"
 )
 
@@ -23,6 +25,10 @@ func TestParseAuthorizationRequest(t *testing.T) {
 		queryParams map[string]string
 
 		wantErr bool
+
+		// if non-nil, this will be called with the resultant request. it can
+		// then validate and return errors as appropriate
+		reqMatcher func(t *testing.T, req *storagepb.AuthRequest)
 	}{
 		{
 			name: "normal request",
@@ -140,6 +146,28 @@ func TestParseAuthorizationRequest(t *testing.T) {
 				"scope":         "openid email profile",
 			},
 			wantErr: true,
+		},
+		{
+			name: "request specifying ACR values",
+			clients: []Client{
+				{
+					ID:           "foo",
+					RedirectURIs: []string{"https://example.com/foo"},
+				},
+			},
+			supportedResponseTypes: []string{"code"},
+			queryParams: map[string]string{
+				"client_id":     "foo",
+				"redirect_uri":  "https://example.com/foo",
+				"response_type": "code",
+				"scope":         "openid",
+				"acr_values":    "phr phrh",
+			},
+			reqMatcher: func(t *testing.T, req *storagepb.AuthRequest) {
+				if diff := cmp.Diff(req.AcrValues, []string{"phr", "phrh"}); diff != "" {
+					t.Errorf("ACR request incorrectly parsed (-want +got):\n%s", diff)
+				}
+			},
 		},
 	}
 

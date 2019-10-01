@@ -11,6 +11,7 @@ require (
 	github.com/gobuffalo/packr/v2 v2.5.1
 	github.com/golang/protobuf v1.3.2
 	github.com/golangci/golangci-lint v1.19.0
+	github.com/google/go-cmp v0.3.0
 	github.com/gorilla/handlers v1.4.0
 	github.com/gorilla/mux v1.6.2
 	github.com/kylelemons/godebug v0.0.0-20170820004349-d65d576e9348

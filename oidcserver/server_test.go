@@ -198,8 +198,13 @@ func TestOAuth2CodeFlow(t *testing.T) {
 		name string
 		// If specified these set of scopes will be used during the test case.
 		scopes []string
+		// if specified these acr_values will be used during the test case
+		acrValues []string
 		// handleToken provides the OAuth2 token response for the integration test.
 		handleToken func(context.Context, *oidc.Provider, *oauth2.Config, *oauth2.Token) error
+		// preAuthenticate can be used to hook into the connectors processing,
+		// to check passed values and override returned.
+		preAuthenticate func(t *testing.T, lr LoginRequest) Identity
 	}{
 		{
 			name: "verify ID Token",
@@ -222,8 +227,8 @@ func TestOAuth2CodeFlow(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("failed to fetch userinfo: %v", err)
 				}
-				if conn.Identity.Email != ui.Email {
-					return fmt.Errorf("expected email to be %v, got %v", conn.Identity.Email, ui.Email)
+				if conn.authFunc(LoginRequest{}).Email != ui.Email {
+					return fmt.Errorf("expected email to be %v, got %v", conn.authFunc(LoginRequest{}).Email, ui.Email)
 				}
 				return nil
 			},
@@ -406,7 +411,9 @@ func TestOAuth2CodeFlow(t *testing.T) {
 					EmailVerified: true,
 					Groups:        []string{"foo", "bar"},
 				}
-				conn.Identity = ident
+				conn.refreshFunc = func(_ Identity) Identity {
+					return ident
+				}
 
 				type claims struct {
 					Username      string   `json:"name"`
@@ -439,6 +446,79 @@ func TestOAuth2CodeFlow(t *testing.T) {
 				return nil
 			},
 		},
+		{
+			name:      "Connector that handles acr_values",
+			acrValues: []string{"phrh", "phr"},
+			preAuthenticate: func(t *testing.T, lr LoginRequest) Identity {
+				if len(lr.ACRValues) != 2 {
+					t.Errorf("want: 2 acr values got: %d", len(lr.ACRValues))
+					return Identity{}
+				}
+				val0 := lr.ACRValues[0]
+				return Identity{
+					UserID: "test",
+					ACR:    &val0,
+					AMR:    []string{"mfa"},
+				}
+			},
+			handleToken: func(ctx context.Context, p *oidc.Provider, config *oauth2.Config, token *oauth2.Token) error {
+				type claims struct {
+					ACR string   `json:"acr"`
+					AMR []string `json:"amr"`
+				}
+				want := claims{"phrh", []string{"mfa"}}
+
+				rawIDToken, ok := token.Extra("id_token").(string)
+				if !ok {
+					return fmt.Errorf("no id token found")
+				}
+				t.Logf("token: %s", rawIDToken)
+				idToken, err := p.Verifier(oidcConfig).Verify(ctx, rawIDToken)
+				if err != nil {
+					return fmt.Errorf("failed to verify id token: %v", err)
+				}
+
+				var got claims
+				if err := idToken.Claims(&got); err != nil {
+					return fmt.Errorf("failed to unmarshal claims: %v", err)
+				}
+
+				if diff := pretty.Compare(want, got); diff != "" {
+					return fmt.Errorf("got identity != want identity: %s", diff)
+				}
+				return nil
+			},
+		},
+		{
+			name:      "Connector that ignores acr_values",
+			acrValues: []string{"phrh", "phr"},
+			handleToken: func(ctx context.Context, p *oidc.Provider, config *oauth2.Config, token *oauth2.Token) error {
+				type claims struct {
+					ACR *string `json:"acr,omitempty"`
+				}
+
+				rawIDToken, ok := token.Extra("id_token").(string)
+				if !ok {
+					return fmt.Errorf("no id token found")
+				}
+				t.Logf("token: %s", rawIDToken)
+				idToken, err := p.Verifier(oidcConfig).Verify(ctx, rawIDToken)
+				if err != nil {
+					return fmt.Errorf("failed to verify id token: %v", err)
+				}
+
+				var got claims
+				if err := idToken.Claims(&got); err != nil {
+					return fmt.Errorf("failed to unmarshal claims: %v", err)
+				}
+
+				if got.ACR != nil {
+					t.Errorf("want: acr not passed through, got: %s", *got.ACR)
+				}
+
+				return nil
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -455,6 +535,14 @@ func TestOAuth2CodeFlow(t *testing.T) {
 
 			mockConn := s.connectors["mock"]
 			conn = mockConn.(*mockConnector)
+			if tc.preAuthenticate != nil {
+				conn.authFunc = func(lr LoginRequest) Identity {
+					t.Log("preauth called")
+					ident := tc.preAuthenticate(t, lr)
+					t.Logf("returning %#v", ident)
+					return ident
+				}
+			}
 
 			// Query server's provider metadata.
 			p, err := oidc.NewProvider(ctx, httpServer.URL)
@@ -478,9 +566,13 @@ func TestOAuth2CodeFlow(t *testing.T) {
 			// Setup OAuth2 client.
 			var oauth2Config *oauth2.Config
 			oauth2Client := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var oa2Opts = []oauth2.AuthCodeOption{}
+				if tc.acrValues != nil {
+					oa2Opts = append(oa2Opts, oauth2.SetAuthURLParam("acr_values", strings.Join(tc.acrValues, " ")))
+				}
 				if r.URL.Path != "/callback" {
 					// User is visiting app first time. Redirect to dex.
-					http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusSeeOther)
+					http.Redirect(w, r, oauth2Config.AuthCodeURL(state, oa2Opts...), http.StatusSeeOther)
 					return
 				}
 

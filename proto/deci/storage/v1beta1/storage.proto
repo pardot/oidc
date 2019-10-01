@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 
 package deci.storage.v1beta1;
 option go_package = "storage";
@@ -39,6 +40,8 @@ message Claims {
   string email = 3;
   bool email_verified = 4;
   repeated string groups = 5;
+  google.protobuf.StringValue acr = 6;
+  repeated string amr = 7;
 }
 
 // AuthRequest represents a OAuth2 client authorization request. It holds the
@@ -59,6 +62,13 @@ message AuthRequest {
   string redirect_uri = 5;
   string nonce = 6;
   string state = 7;
+
+  // OPTIONAL. Requested Authentication Context Class Reference values.
+  // Space-separated string that specifies the acr values that the Authorization
+  // Server is being requested to use for processing this Authentication
+  // Request, with the values appearing in order of preference.
+  // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+  repeated string acr_values = 14;
 
   // The client has indicated that the end user must be shown an approval prompt
   // on all requests. The server cannot cache their initial action for
