@@ -3,34 +3,27 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"flag"
+	"os"
 	"testing"
 
-	"github.com/pardot/deci/storage"
 	_ "github.com/lib/pq"
+	"github.com/pardot/deci/storage"
 )
-
-var (
-	dbURL = flag.String("db-url", "", "Database URL")
-)
-
-func init() {
-	flag.Parse()
-}
 
 func TestStorage(t *testing.T) {
-	if *dbURL == "" {
-		t.Skip("-db-url not set, skipping")
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		t.Skip("DB_URL not set, skipping")
 	}
 
-	ctx, s := setup(t)
+	ctx, s := setup(t, dbURL)
 	storage.Test(ctx, t, s)
 }
 
-func setup(t *testing.T) (ctx context.Context, s *Storage) {
+func setup(t *testing.T, dbURL string) (ctx context.Context, s *Storage) {
 	ctx = context.Background()
 
-	db, err := sql.Open("postgres", *dbURL)
+	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		t.Fatal(err)
 	}

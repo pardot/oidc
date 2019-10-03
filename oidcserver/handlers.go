@@ -17,6 +17,7 @@ import (
 	"github.com/pardot/deci/oidcserver/internal"
 	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
 	"github.com/pardot/deci/storage"
+	"github.com/sirupsen/logrus"
 	jose "gopkg.in/square/go-jose.v2"
 )
 
@@ -791,6 +792,17 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		return
 	}
+
+	s.logger.WithFields(logrus.Fields{
+		"connector": refresh.ConnectorId,
+		"userid":    refresh.Claims.UserId,
+		"username":  refresh.Claims.Username,
+		"email":     refresh.Claims.Email,
+		"groups":    refresh.Claims.Groups,
+		"acr":       refresh.Claims.Acr,
+		"amr":       refresh.Claims.Amr,
+		"at":        "refresh-successful",
+	}).Info()
 
 	s.writeAccessToken(w, idToken, accessToken, rawNewToken, expiry)
 }

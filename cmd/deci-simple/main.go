@@ -75,25 +75,18 @@ func main() {
 		},
 	})
 
-	server, err := oidcserver.New((*issuer).String(), stor, signer, clients, oidcserver.WithLogger(l), oidcserver.WithSkipApprovalScreen(*skipConsent))
-	if err != nil {
-		l.WithError(err).Fatal("Failed to construct server")
-	}
-
 	mux := http.NewServeMux()
-	mux.Handle((*issuer).Path+"/", http.StripPrefix((*issuer).Path, server))
 
-	if err := server.AddConnector("static", &staticIdentityConnector{
-		identity: oidcserver.Identity{
-			UserID:        "jdoe",
-			Username:      "jdoe",
-			Email:         "jdoe@example.com",
-			EmailVerified: true,
-			Groups:        []string{"group"},
+	connectors := map[string]oidcserver.Connector{
+		"static": &staticIdentityConnector{
+			identity: oidcserver.Identity{
+				UserID:        "jdoe",
+				Username:      "jdoe",
+				Email:         "jdoe@example.com",
+				EmailVerified: true,
+				Groups:        []string{"group"},
+			},
 		},
-		authenticator: server.Authenticator(),
-	}); err != nil {
-		l.WithError(err).Fatal("Failed to add static connector")
 	}
 
 	if *oidcIssuer != nil {
@@ -111,17 +104,19 @@ func main() {
 		}
 
 		connector := &oidcConnector{
-			provider:      provider,
-			oauth2Config:  oauth2Config,
-			authenticator: server.Authenticator(),
+			provider:     provider,
+			oauth2Config: oauth2Config,
 		}
-
-		if err := server.AddConnector("oidc", connector); err != nil {
-			l.WithError(err).Fatal("Failed to add OIDC connector")
-		}
+		connectors["oidc"] = connector
 
 		mux.Handle((*issuer).Path+"/oidc/", http.StripPrefix((*issuer).Path+"/oidc", connector))
 	}
+
+	server, err := oidcserver.New((*issuer).String(), stor, signer, connectors, clients, oidcserver.WithLogger(l), oidcserver.WithSkipApprovalScreen(*skipConsent))
+	if err != nil {
+		l.WithError(err).Fatal("Failed to construct server")
+	}
+	mux.Handle((*issuer).Path+"/", http.StripPrefix((*issuer).Path, server))
 
 	l.Infof("Listening on %s", *listen)
 	l.WithError(http.ListenAndServe(*listen, mux)).Fatal()
@@ -130,6 +125,10 @@ func main() {
 type staticIdentityConnector struct {
 	identity      oidcserver.Identity
 	authenticator oidcserver.Authenticator
+}
+
+func (s *staticIdentityConnector) Initialize(authenticator oidcserver.Authenticator) {
+	s.authenticator = authenticator
 }
 
 // LoginPage just automatically approves the connection and finalizes the flow
@@ -152,6 +151,10 @@ type oidcConnector struct {
 	provider      *oidc.Provider
 	oauth2Config  *oauth2.Config
 	authenticator oidcserver.Authenticator
+}
+
+func (c *oidcConnector) Initialize(authenticator oidcserver.Authenticator) {
+	c.authenticator = authenticator
 }
 
 func (c *oidcConnector) LoginPage(w http.ResponseWriter, r *http.Request, lr oidcserver.LoginRequest) {

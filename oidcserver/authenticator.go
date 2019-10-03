@@ -6,6 +6,7 @@ import (
 
 	"github.com/golang/protobuf/ptypes/wrappers"
 	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
+	"github.com/sirupsen/logrus"
 )
 
 // Authenticator is capable of associating the user's identity with a given
@@ -53,13 +54,17 @@ func (a *authenticator) Authenticate(ctx context.Context, authID string, ident I
 		return "", fmt.Errorf("failed to update auth request: %v", err)
 	}
 
-	email := claims.Email
-	if !claims.EmailVerified {
-		email = email + " (unverified)"
-	}
-
-	a.s.logger.Infof("login successful: connector %q, username=%q, email=%q, groups=%q",
-		authReq.ConnectorId, claims.Username, email, claims.Groups)
+	a.s.logger.WithFields(logrus.Fields{
+		"authid":    authID,
+		"connector": authReq.ConnectorId,
+		"userid":    claims.UserId,
+		"username":  claims.Username,
+		"email":     claims.Email,
+		"groups":    claims.Groups,
+		"acr":       claims.Acr,
+		"amr":       claims.Amr,
+		"at":        "login-successful",
+	}).Info()
 
 	return a.s.absURL("/approval") + "?req=" + authReq.Id, nil
 }

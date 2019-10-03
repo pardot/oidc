@@ -54,6 +54,12 @@ type LoginRequest struct {
 
 // Connector is used to actually manage the end user authentication
 type Connector interface {
+	// Initialize is called by Server before the connectors first authentication
+	// flow. This passes an Authenticator which the connector can use to assign
+	// an identity to the authorization flow, and determine the final URL to
+	// send the user to
+	Initialize(auth Authenticator)
+
 	// LoginPage is called at the start of an authentication flow. This method
 	// can render/return whatever it wants and run the user through any
 	// arbitrary intermediate pages. The only requirement is that it threads the

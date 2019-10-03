@@ -103,6 +103,7 @@ func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)
 			Use:       "sig",
 		},
 	}
+	connectors := map[string]Connector{"mock": newMockConnector()}
 	signer := signer.NewStatic(signingKey, verificationKeys)
 
 	// make the updater into an option, so we can change the server a bit before
@@ -116,12 +117,8 @@ func newTestServer(_ context.Context, t *testing.T, updateServer func(s *Server)
 		return nil
 	}
 
-	server, err = New(s.URL, stor, signer, nil, WithLogger(logger), WithSkipApprovalScreen(true), usOpt)
+	server, err = New(s.URL, stor, signer, connectors, nil, WithLogger(logger), WithSkipApprovalScreen(true), usOpt)
 	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := server.AddConnector("mock", newMockConnector(server.Authenticator())); err != nil {
 		t.Fatal(err)
 	}
 

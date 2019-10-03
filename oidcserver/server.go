@@ -156,7 +156,7 @@ func WithAllowedOrigins(origins []string) ServerOption {
 	})
 }
 
-func New(issuer string, storage storage.Storage, signer Signer, clients ClientSource, opts ...ServerOption) (*Server, error) {
+func New(issuer string, storage storage.Storage, signer Signer, connectors map[string]Connector, clients ClientSource, opts ...ServerOption) (*Server, error) {
 	issURL, err := url.Parse(issuer)
 	if err != nil {
 		return nil, fmt.Errorf("server: can't parse issuer URL")
@@ -169,7 +169,7 @@ func New(issuer string, storage storage.Storage, signer Signer, clients ClientSo
 
 	s := &Server{
 		issuerURL:              *issURL,
-		connectors:             make(map[string]Connector),
+		connectors:             connectors,
 		storage:                storage,
 		idTokensValidFor:       24 * time.Hour,
 		authRequestsValidFor:   1 * time.Hour,
@@ -248,22 +248,11 @@ func New(issuer string, storage storage.Storage, signer Signer, clients ClientSo
 	handlePrefix("/static", http.FileServer(webStatic))
 	s.mux = r
 
+	for _, c := range s.connectors {
+		c.Initialize(&authenticator{s})
+	}
+
 	return s, nil
-}
-
-// Authenticator returns an Authenticator associated with this Server.
-// Connectors should call Authenticate on the returned Authenticator to finalize
-// the login flow.
-func (s *Server) Authenticator() Authenticator {
-	return &authenticator{s: s}
-}
-
-// AddConnector registers the connector with the server. AddConnector must not
-// be called after the Server begins handling HTTP requests.
-func (s *Server) AddConnector(id string, connector Connector) error {
-	s.connectors[id] = connector
-
-	return nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

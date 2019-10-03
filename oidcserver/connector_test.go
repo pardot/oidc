@@ -8,7 +8,7 @@ import (
 
 // newMockConnector returns a mock connector which requires no user interaction. It always returns
 // the same (fake) identity.
-func newMockConnector(authenticator Authenticator) *mockConnector {
+func newMockConnector() *mockConnector {
 	ident := Identity{
 		UserID:        "0-385-28089-0",
 		Username:      "Kilgore Trout",
@@ -25,7 +25,6 @@ func newMockConnector(authenticator Authenticator) *mockConnector {
 		refreshFunc: func(_ Identity) Identity {
 			return ident
 		},
-		authenticator: authenticator,
 	}
 }
 
@@ -43,6 +42,10 @@ type mockConnector struct {
 	refreshFunc func(Identity) Identity
 
 	authenticator Authenticator
+}
+
+func (m *mockConnector) Initialize(authenticator Authenticator) {
+	m.authenticator = authenticator
 }
 
 func (m *mockConnector) LoginPage(w http.ResponseWriter, r *http.Request, lr LoginRequest) {
