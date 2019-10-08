@@ -196,13 +196,7 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	lr := LoginRequest{
-		AuthID:    authReqID,
-		Scopes:    parseScopes(authReq.Scopes),
-		ACRValues: authReq.AcrValues,
-	}
-
-	conn.LoginPage(w, r, lr)
+	conn.LoginPage(w, r, asLoginRequest(authReq))
 }
 
 func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
@@ -882,4 +876,12 @@ func offlineSessionID(userID, connID string) string {
 		base64.StdEncoding.EncodeToString([]byte(userID)),
 		base64.StdEncoding.EncodeToString([]byte(connID)),
 	)
+}
+
+func asLoginRequest(authReq *storagepb.AuthRequest) LoginRequest {
+	return LoginRequest{
+		AuthID:    authReq.Id,
+		Scopes:    parseScopes(authReq.Scopes),
+		ACRValues: authReq.AcrValues,
+	}
 }

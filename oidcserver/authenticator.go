@@ -76,8 +76,5 @@ func (a *authenticator) LoginRequest(ctx context.Context, authID string) (LoginR
 		return LoginRequest{}, err
 	}
 
-	return LoginRequest{
-		AuthID: authID,
-		Scopes: parseScopes(authReq.Scopes),
-	}, nil
+	return asLoginRequest(authReq), nil
 }
