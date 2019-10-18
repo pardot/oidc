@@ -13,6 +13,7 @@ import (
 
 	oidc "github.com/coreos/go-oidc"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/gorilla/mux"
 	"github.com/pardot/deci/oidcserver/internal"
 	storagepb "github.com/pardot/deci/proto/deci/storage/v1beta1"
@@ -688,7 +689,12 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		Email:         refresh.Claims.Email,
 		EmailVerified: refresh.Claims.EmailVerified,
 		Groups:        refresh.Claims.Groups,
+		AMR:           refresh.Claims.Amr,
 		ConnectorData: refresh.ConnectorData,
+	}
+	if refresh.Claims.Acr != nil {
+		acr := refresh.Claims.Acr.Value
+		ident.ACR = &acr
 	}
 
 	// Can the connector refresh the identity? If so, attempt to refresh the data
@@ -712,6 +718,10 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 		Email:         ident.Email,
 		EmailVerified: ident.EmailVerified,
 		Groups:        ident.Groups,
+		Amr:           ident.AMR,
+	}
+	if ident.ACR != nil {
+		claims.Acr = &wrappers.StringValue{Value: *ident.ACR}
 	}
 
 	accessToken, err := s.newAccessToken(client.ID, claims, scopes, refresh.Nonce, refresh.ConnectorId)
