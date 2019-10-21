@@ -1,8 +1,8 @@
-.PHONY: all build test lint
+.PHONY: all build test lint proto
 
 gopath=$(shell go env GOPATH)
 
-all: build test lint
+all: proto build test lint
 
 build:
 	go build ./...
@@ -15,3 +15,8 @@ lint: $(gopath)/bin/gobin
 
 $(gopath)/bin/gobin:
 	(cd /tmp && GO111MODULE=on go get -u github.com/myitcv/gobin@latest)
+
+proto: proto/deci/corestate/v1beta1/storage.pb.go
+
+proto/deci/corestate/v1beta1/storage.pb.go: proto/deci/corestate/v1beta1/storage.proto
+	protoc -I proto/deci/corestate/v1beta1 --go_out=proto/deci/corestate/v1beta1 storage.proto

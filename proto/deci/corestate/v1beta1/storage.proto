@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/any.proto";
+
+package deci.corestate.v1beta1;
+option go_package = "corestate";
+
+// AuthRequest represents that state for an inbound request to auth. It tracks
+// this until the Code is issued, at which time it is replaced.
+//
+// It is keyed by a unique identifier for this flow
+message AuthRequest {
+  string client_id = 1;
+  string redirect_uri = 2;
+  string state = 3;
+  repeated string scopes = 4;
+  string nonce = 5;
+  enum ResponseType {
+    UNKNOWN = 0;
+    CODE = 1;
+    TOKEN = 2;
+  }
+  ResponseType response_type = 6;
+}
+
+// AuthCode represents the state for a request we are going to proceed with, and
+// have issued a authorization code for.
+//
+// It is keyed by the the ID of the auth code
+message AuthCode {
+  Token code = 1;
+
+  // The original request this code was written for
+  AuthRequest auth_request = 2;
+
+  google.protobuf.Struct claims = 4;
+
+  // metadata is implementation-specific state for this "user". it is threaded
+  // through all of the steps in the process. This should contain the
+  // information required to serve requests to this service.
+  google.protobuf.Any metadata = 5;
+
+  // The auth token this code was redeemed for. If a request comes in to redeem
+  // a code that already has a token attached to it, we should ignore the
+  // request and discard the auth token we already issued.
+  //
+  // https://tools.ietf.org/html/rfc6819#section-4.4.1.1
+  // https://tools.ietf.org/html/rfc6819#section-5.2.1.1
+  Token access_token = 6;
+}
+
+// AccessToken represents an access token that was issued to the user. This is
+// used for calls to the userinfo endpoint
+//
+// It is keyed by the the ID of the access token
+message AccessToken {
+  Token access_token = 1;
+  google.protobuf.Any metadata = 2;
+  google.protobuf.Struct claims = 3;
+}
+
+// RefreshToken is a RefreshToken that was issued to the user.
+//
+// It is keyed by the the ID of the refresh token
+message RefreshToken {
+  Token refresh_token = 1;
+}
+
+// Token represents a single "token" that was issued to a user. this is an
+// opaque value that could be used as the code, access or refresh token values.
+message Token {
+  // unique identity for this token.
+  bytes id = 1;
+  // bcrypted version of the token
+  bytes bcrypt = 2;
+}
