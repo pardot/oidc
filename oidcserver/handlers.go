@@ -704,9 +704,13 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request, clie
 	// this interface can't perform refreshing.
 	if refreshConn, ok := conn.(RefreshConnector); ok {
 		newIdent, err := refreshConn.Refresh(r.Context(), parseScopes(scopes), ident)
-		if err != nil {
+		if isRetryableErr(err) {
 			s.logger.Errorf("failed to refresh identity: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
+			return
+		} else if err != nil {
+			s.logger.Errorf("failed to refresh identity: %v", err)
+			s.tokenErrHelper(w, errInvalidGrant, "", http.StatusBadRequest)
 			return
 		}
 		ident = newIdent

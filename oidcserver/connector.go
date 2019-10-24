@@ -76,3 +76,16 @@ type RefreshConnector interface {
 	// changes since the token was last refreshed.
 	Refresh(ctx context.Context, s Scopes, identity Identity) (Identity, error)
 }
+
+// An error that implements errRetryable can signal that an error is retryable.
+// A retryable error might have different meaning depending on context: for
+// instance, an HTTP error code that is retryable might be returned to the
+// client.
+type errRetryable interface {
+	Retryable() bool
+}
+
+func isRetryableErr(err error) bool {
+	er, ok := err.(errRetryable)
+	return ok && er.Retryable()
+}
