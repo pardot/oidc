@@ -1,4 +1,4 @@
-module github.com/pardot/deci
+module github.com/pardot/oidc
 
 go 1.13
 
