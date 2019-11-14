@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pardot/deci/storage"
+	"github.com/pardot/oidc/storage"
 )
 
 func TestStorage(t *testing.T) {
