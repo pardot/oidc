@@ -12,11 +12,13 @@ type GrantType string
 
 const (
 	GrantTypeAuthorizationCode GrantType = "authorization_code"
+	GrantTypeRefreshToken      GrantType = "refresh_token"
 )
 
 type tokenRequest struct {
 	GrantType    GrantType
 	Code         string
+	RefreshToken string
 	RedirectURI  string
 	ClientID     string
 	ClientSecret string
@@ -35,12 +37,9 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 	}
 
 	tr := &tokenRequest{
-		RedirectURI: req.FormValue("redirect_uri"),
-		Code:        req.FormValue("code"),
-	}
-
-	if tr.Code == "" {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code is required"}
+		RedirectURI:  req.FormValue("redirect_uri"),
+		Code:         req.FormValue("code"),
+		RefreshToken: req.FormValue("refresh_token"),
 	}
 
 	// Auth the request
@@ -56,7 +55,21 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 
 	switch req.FormValue("grant_type") {
 	case string(GrantTypeAuthorizationCode):
+		if tr.Code == "" {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code is required for authorization_code grant"}
+		}
+		if tr.RedirectURI == "" {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "redirect_uri is required for authorization_code grant"}
+		}
 		tr.GrantType = GrantTypeAuthorizationCode
+
+	case string(GrantTypeRefreshToken):
+		// https://tools.ietf.org/html/rfc6749#section-6
+		if tr.RefreshToken == "" {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "refresh_token is required for refresh grant"}
+		}
+		tr.GrantType = GrantTypeRefreshToken
+
 	default:
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: fmt.Sprintf("grant_type must be %s", GrantTypeAuthorizationCode)}
 	}

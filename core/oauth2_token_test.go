@@ -74,6 +74,31 @@ func TestParseToken(t *testing.T) {
 			WantErr:     true,
 			WantErrCode: tokenErrorCodeInvalidGrant,
 		},
+		{
+			Name: "Valid refresh request succeeds",
+			Req: queryReq(map[string]string{
+				"grant_type":    "refresh_token",
+				"refresh_token": "refreshtok",
+				"client_id":     "client",
+				"client_secret": "secret",
+			}),
+			Want: &tokenRequest{
+				GrantType:    GrantTypeRefreshToken,
+				RefreshToken: "refreshtok",
+				ClientID:     "client",
+				ClientSecret: "secret",
+			},
+		},
+		{
+			Name: "Refresh grant requires refresh token",
+			Req: queryReq(map[string]string{
+				"grant_type":    "refresh_token",
+				"client_id":     "client",
+				"client_secret": "secret",
+			}),
+			WantErr:     true,
+			WantErrCode: tokenErrorCodeInvalidRequest,
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			resp, err := parseTokenRequest(tc.Req())
