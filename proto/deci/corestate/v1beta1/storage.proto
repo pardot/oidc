@@ -2,7 +2,6 @@ syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
-import "google/protobuf/struct.proto";
 import "google/protobuf/any.proto";
 
 package deci.corestate.v1beta1;
@@ -36,8 +35,6 @@ message AuthCode {
   // The original request this code was written for
   AuthRequest auth_request = 2;
 
-  google.protobuf.Struct claims = 4;
-
   // metadata is implementation-specific state for this "user". it is threaded
   // through all of the steps in the process. This should contain the
   // information required to serve requests to this service.
@@ -59,7 +56,6 @@ message AuthCode {
 message AccessToken {
   Token access_token = 1;
   google.protobuf.Any metadata = 2;
-  google.protobuf.Struct claims = 3;
 }
 
 // RefreshToken is a RefreshToken that was issued to the user.

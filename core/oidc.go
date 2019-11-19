@@ -169,11 +169,10 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 // The scopes this request has been granted with should be included. Metadata
 // can be passed, that will be made available to requests to userinfo and token
 // issue/refresh. This is application-specific, and should be used to track
-// information needed to serve those endpoints. Claims that should be used for
-// the token should also be passed.
+// information needed to serve those endpoints.
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, authFlowID string, scopes []string, claims Claims, metadata proto.Message) error {
+func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, authFlowID string, grantedScopes []string, metadata proto.Message) error {
 	ar := &corestate.AuthRequest{}
 	arVer, err := o.storage.Get(req.Context(), authRequestKeyspace, authFlowID, ar)
 	if err != nil {
@@ -190,13 +189,13 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, aut
 
 	switch ar.ResponseType {
 	case corestate.AuthRequest_CODE:
-		return o.finishCodeAuthorization(w, req, ar, scopes, claims, metadata)
+		return o.finishCodeAuthorization(w, req, ar, grantedScopes, metadata)
 	default:
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", nil, fmt.Sprintf("unknown ResponseType %s", ar.ResponseType.String()))
 	}
 }
 
-func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, authReq *corestate.AuthRequest, scopes []string, claims Claims, metadata proto.Message) error {
+func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, authReq *corestate.AuthRequest, scopes []string, metadata proto.Message) error {
 	tok, err := newToken()
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to generate code token")
@@ -206,11 +205,6 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	pbtok, err := tok.ToPB()
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to conver token to proto")
-	}
-
-	sclaims, err := goToPBStruct(claims)
-	if err != nil {
-		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to convert claims to proto")
 	}
 
 	var anym *any.Any
@@ -228,7 +222,6 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	ac := &corestate.AuthCode{
 		Code:        pbtok,
 		AuthRequest: authReq,
-		Claims:      sclaims,
 		Metadata:    anym,
 	}
 
@@ -256,13 +249,12 @@ type TokenRequest struct {
 	IsRefresh        bool
 	RefreshRequested bool
 
-	Claims   Claims
 	Metadata *any.Any
 }
 
 type TokenResponse struct {
 	AllowRefresh bool
-	Claims       Claims
+	IDToken      IDToken
 
 	Metadata *any.Any
 }
@@ -355,14 +347,8 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "", Cause: err}
 	}
 
-	claims, err := claimsFromProto(ac.Claims)
-	if err != nil {
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to unpack existing claims", Cause: err}
-	}
-
 	// Call the handler with information about the request, and get the response.
 	tr := &TokenRequest{
-		Claims:           claims,
 		IsRefresh:        false, // TODO
 		RefreshRequested: false, // TODO
 		Metadata:         ac.Metadata,
@@ -388,7 +374,6 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	at := &corestate.AccessToken{
 		AccessToken: atokpb,
 		Metadata:    tresp.Metadata,
-		Claims:      ac.Claims,
 	}
 
 	// Update the code with this token. We use this to track that the code is
@@ -417,7 +402,6 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 }
 
 type UserinfoRequest struct {
-	Claims   Claims
 	Metadata *any.Any
 }
 

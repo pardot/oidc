@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"log"
 	"sync"
-	"time"
 
 	"net/http"
 
@@ -78,14 +77,11 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// get the form values, fill in the details
-	claims := core.NewClaims("iss", "sub", "aud", time.Now().Add(5*time.Minute), time.Now())
-
 	// This is what we track, and will get back in the token response
 	meta := &examplestate.User{}
 
 	// finalize it. this will redirect the user to the appropriate place
-	if err := s.oidc.FinishAuthorization(w, req, authID.Value, []string{}, claims, meta); err != nil {
+	if err := s.oidc.FinishAuthorization(w, req, authID.Value, []string{}, meta); err != nil {
 		log.Printf("error finishing authorization: %v", err)
 	}
 }
@@ -98,16 +94,16 @@ func (s *server) token(w http.ResponseWriter, req *http.Request) {
 			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 
-		claims := tr.Claims
-
 		metaany, err := ptypes.MarshalAny(meta)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marhal metadata: %w", err)
 		}
 
+		idt := core.IDToken{}
+
 		return &core.TokenResponse{
 			AllowRefresh: false,
-			Claims:       claims,
+			IDToken:      idt,
 			Metadata:     metaany,
 		}, nil
 	})

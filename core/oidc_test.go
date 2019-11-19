@@ -10,7 +10,6 @@ import (
 
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
-	structpb "github.com/golang/protobuf/ptypes/struct"
 	corestate "github.com/pardot/oidc/proto/deci/corestate/v1beta1"
 	"github.com/pardot/oidc/storage"
 	"github.com/pardot/oidc/storage/memory"
@@ -249,7 +248,7 @@ func TestFinishAuthorization(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/", nil)
 
-			err := oidc.FinishAuthorization(rec, req, authReqID, []string{"granted"}, Claims{}, &empty.Empty{})
+			err := oidc.FinishAuthorization(rec, req, authReqID, []string{"granted"}, &empty.Empty{})
 			if err == nil && tc.WantReturnedErrMatch != nil {
 				t.Fatal("want error, got none")
 			}
@@ -321,7 +320,6 @@ func TestToken(t *testing.T) {
 		code := corestate.AuthCode{
 			Code:     tokPB,
 			Metadata: meta,
-			Claims:   &structpb.Struct{},
 		}
 
 		if _, err := stor.Put(context.Background(), authCodeKeyspace, tok.ID(), 0, &code); err != nil {
@@ -331,7 +329,7 @@ func TestToken(t *testing.T) {
 		return tok
 	}
 
-	newHandler := func(t *testing.T, claims Claims) func(req *TokenRequest) (*TokenResponse, error) {
+	newHandler := func(t *testing.T) func(req *TokenRequest) (*TokenResponse, error) {
 		return func(req *TokenRequest) (*TokenResponse, error) {
 			meta, err := ptypes.MarshalAny(&empty.Empty{})
 			if err != nil {
@@ -339,7 +337,6 @@ func TestToken(t *testing.T) {
 			}
 
 			return &TokenResponse{
-				Claims:   claims,
 				Metadata: meta,
 			}, nil
 		}
@@ -357,7 +354,7 @@ func TestToken(t *testing.T) {
 			ClientSecret: clientSecret,
 		}
 
-		tresp, err := o.token(context.Background(), treq, newHandler(t, Claims{}))
+		tresp, err := o.token(context.Background(), treq, newHandler(t))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -379,13 +376,13 @@ func TestToken(t *testing.T) {
 			ClientSecret: clientSecret,
 		}
 
-		_, err := o.token(context.Background(), treq, newHandler(t, Claims{}))
+		_, err := o.token(context.Background(), treq, newHandler(t))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		// replay fails
-		_, err = o.token(context.Background(), treq, newHandler(t, Claims{}))
+		_, err = o.token(context.Background(), treq, newHandler(t))
 		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeInvalidRequest {
 			t.Errorf("want invalid token request error, got: %v", err)
 		}
@@ -403,7 +400,7 @@ func TestToken(t *testing.T) {
 			ClientSecret: "invalid-secret",
 		}
 
-		_, err := o.token(context.Background(), treq, newHandler(t, Claims{}))
+		_, err := o.token(context.Background(), treq, newHandler(t))
 		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeUnauthorizedClient {
 			t.Errorf("want unauthorized client error, got: %v", err)
 		}
