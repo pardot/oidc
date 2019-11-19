@@ -276,6 +276,10 @@ func TestToken(t *testing.T) {
 		clientID     = "client-id"
 		clientSecret = "client-secret"
 		redirectURI  = "https://redirect"
+
+		otherClientID       = "other-client"
+		otherClientSecret   = "other-secret"
+		otherClientRedirect = "https://other"
 	)
 
 	newOIDC := func() *OIDC {
@@ -287,6 +291,10 @@ func TestToken(t *testing.T) {
 					clientID: csClient{
 						Secret:      clientSecret,
 						RedirectURI: redirectURI,
+					},
+					otherClientID: csClient{
+						Secret:      otherClientSecret,
+						RedirectURI: otherClientRedirect,
 					},
 				},
 			},
@@ -320,6 +328,9 @@ func TestToken(t *testing.T) {
 		code := corestate.AuthCode{
 			Code:     tokPB,
 			Metadata: meta,
+			AuthRequest: &corestate.AuthRequest{
+				ClientId: clientID,
+			},
 		}
 
 		if _, err := stor.Put(context.Background(), authCodeKeyspace, tok.ID(), 0, &code); err != nil {
@@ -398,6 +409,26 @@ func TestToken(t *testing.T) {
 			RedirectURI:  redirectURI,
 			ClientID:     clientID,
 			ClientSecret: "invalid-secret",
+		}
+
+		_, err := o.token(context.Background(), treq, newHandler(t))
+		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeUnauthorizedClient {
+			t.Errorf("want unauthorized client error, got: %v", err)
+		}
+	})
+
+	t.Run("Client secret that differs from the original client should fail", func(t *testing.T) {
+		o := newOIDC()
+		codeToken := newCode(t, o.storage)
+
+		treq := &tokenRequest{
+			GrantType:   GrantTypeAuthorizationCode,
+			Code:        codeToken.String(),
+			RedirectURI: redirectURI,
+			// This is not the credentials the code should be tracking, but are
+			// otherwise valid
+			ClientID:     otherClientID,
+			ClientSecret: otherClientSecret,
 		}
 
 		_, err := o.token(context.Background(), treq, newHandler(t))

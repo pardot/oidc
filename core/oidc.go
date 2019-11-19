@@ -337,6 +337,11 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code already redeemed", Cause: err}
 	}
 
+	// check to see if we're working with the same client
+	if ac.AuthRequest.ClientId != req.ClientID {
+		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: ""}
+	}
+
 	// validate the client
 	cok, err := o.clients.ValidateClientSecret(req.ClientID, req.ClientSecret)
 	if err != nil {
@@ -344,7 +349,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	}
 	if !cok {
-		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "", Cause: err}
+		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: ""}
 	}
 
 	// Call the handler with information about the request, and get the response.
