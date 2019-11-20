@@ -20,8 +20,7 @@ import (
 
 const (
 	authRequestKeyspace = "oidc-auth-request"
-	authCodeKeyspace    = "oidc-auth-code"
-	accessTokenKeyspace = "oidc-access-token"
+	authSessionKeyspace = "oidc-session"
 )
 
 // Storage is used to maintain authorization flow state.
@@ -187,26 +186,6 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, aut
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to delete auth request")
 	}
 
-	switch ar.ResponseType {
-	case corestate.AuthRequest_CODE:
-		return o.finishCodeAuthorization(w, req, ar, grantedScopes, metadata)
-	default:
-		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", nil, fmt.Sprintf("unknown ResponseType %s", ar.ResponseType.String()))
-	}
-}
-
-func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, authReq *corestate.AuthRequest, scopes []string, metadata proto.Message) error {
-	tok, err := newToken()
-	if err != nil {
-		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to generate code token")
-
-	}
-
-	pbtok, err := tok.ToPB()
-	if err != nil {
-		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to conver token to proto")
-	}
-
 	var anym *any.Any
 
 	if metadata != nil {
@@ -217,15 +196,37 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 		}
 	}
 
-	_ = scopes
-	// TODO - granted scopes with the auth code. Or leave that to the metadata?
-	ac := &corestate.AuthCode{
-		Code:        pbtok,
-		AuthRequest: authReq,
-		Metadata:    anym,
+	// start a session with the passed info, we'll complete it in the
+	// appropriate flow
+	sessID := mustGenerateID()
+	authSess := &corestate.Session{
+		ClientId: ar.ClientId,
+		Scopes:   grantedScopes,
+		Metadata: anym,
 	}
 
-	if _, err := o.storage.PutWithExpiry(req.Context(), authCodeKeyspace, tok.ID(), 0, ac, o.now().Add(o.codeValidityTime)); err != nil {
+	switch ar.ResponseType {
+	case corestate.AuthRequest_CODE:
+		return o.finishCodeAuthorization(w, req, ar, sessID, authSess)
+	default:
+		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", nil, fmt.Sprintf("unknown ResponseType %s", ar.ResponseType.String()))
+	}
+}
+
+func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, authReq *corestate.AuthRequest, sessID string, authSess *corestate.Session) error {
+	ucode, scode, err := newToken(sessID, corestate.TokenType_AUTH_CODE, o.now().Add(o.codeValidityTime))
+	if err != nil {
+		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to generate code token")
+	}
+
+	code, err := marshalToken(ucode)
+	if err != nil {
+		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to marshal code token")
+	}
+
+	authSess.AuthCode = scode
+
+	if _, err := o.storage.PutWithExpiry(req.Context(), authSessionKeyspace, sessID, 0, authSess, o.now().Add(o.codeValidityTime)); err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to put authReq to storage")
 	}
 
@@ -237,7 +238,7 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	codeResp := &codeAuthResponse{
 		RedirectURI: redir,
 		State:       authReq.State,
-		Code:        tok.String(),
+		Code:        code,
 	}
 
 	sendCodeAuthResponse(w, req, codeResp)
@@ -287,59 +288,50 @@ func (o *OIDC) Token(w http.ResponseWriter, req *http.Request, handler func(req 
 }
 
 func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *TokenRequest) (*TokenResponse, error)) (*tokenResponse, error) {
-	tok, err := parseToken(req.Code)
+	ucode, err := unmarshalToken(req.Code)
 	if err != nil {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 
-	// fetch the code, and make sure this isn't some replay. if it is, discard
-	// both the code and the existing authorization code
+	if ucode.TokenType != corestate.TokenType_AUTH_CODE {
+		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
+	}
 
-	ac := &corestate.AuthCode{}
-	acVer, err := o.storage.Get(ctx, authCodeKeyspace, tok.ID(), ac)
+	// fetch the corresponding session
+
+	sess := &corestate.Session{}
+	sessVer, err := o.storage.Get(ctx, authSessionKeyspace, ucode.SessionId, sess)
 	if err != nil {
 		// TODO - maybe a clearer error as to if this is transient, or something
 		// fatal like code not existing.
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get auth code from storage", Cause: err}
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
 	}
 
-	ok, err := tok.Equal(tokenFromPB(ac.Code))
+	ok, err := tokensMatch(ucode, sess.AuthCode)
 	if err != nil {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 	if !ok {
-		if err := o.storage.Delete(ctx, authCodeKeyspace, tok.ID(), acVer); err != nil {
-			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete auth code from storage", Cause: err}
+		// if we're passed an invalid code, assume we're under attack and drop the session
+		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
+			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 
-	// The code already has a token associated with it. Assume we're under a
-	// replay attack, and delete both the code and the issued access token (in
-	// case the malicious request got in first)
-	if ac.AccessToken != nil {
-		at := tokenFromPB(ac.AccessToken)
-
-		if err := o.storage.Delete(ctx, authCodeKeyspace, tok.ID(), acVer); err != nil {
+	// The session already has a token associated with it. Assume we're under a
+	// replay attack, and drop the session
+	if len(sess.AccessTokens) > 0 {
+		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete auth code from storage", Cause: err}
-		}
-
-		atVer, err := o.storage.Get(ctx, accessTokenKeyspace, at.ID(), &corestate.AccessToken{})
-		if err != nil {
-			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to fetch access token", Cause: err}
-
-		}
-
-		if err := o.storage.Delete(ctx, accessTokenKeyspace, at.ID(), atVer); err != nil {
-			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete access token storage", Cause: err}
 		}
 
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code already redeemed", Cause: err}
 	}
 
 	// check to see if we're working with the same client
-	if ac.AuthRequest.ClientId != req.ClientID {
-		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: ""}
+	if sess.ClientId != req.ClientID {
+		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "", Cause: fmt.Errorf("code redeemed for wrong client")}
 	}
 
 	// validate the client
@@ -356,7 +348,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	tr := &TokenRequest{
 		IsRefresh:        false, // TODO
 		RefreshRequested: false, // TODO
-		Metadata:         ac.Metadata,
+		Metadata:         sess.Metadata,
 	}
 
 	tresp, err := handler(tr)
@@ -364,40 +356,41 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "handler returned error", Cause: err}
 	}
 
+	var anym *any.Any
+	if tresp.Metadata != nil {
+		a, err := ptypes.MarshalAny(tresp.Metadata)
+		if err != nil {
+			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal metadata", Cause: err}
+		}
+		anym = a
+	}
+	sess.Metadata = anym
+
 	// create a new access token
-	atok, err := newToken()
+	useratok, satok, err := newToken(ucode.SessionId, corestate.TokenType_ACCESS_TOKEN, o.now().Add(o.accessTokenValidityTime))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 
 	}
-
-	atokpb, err := atok.ToPB()
-	if err != nil {
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to create serializable token", Cause: err}
+	if sess.AccessTokens == nil {
+		sess.AccessTokens = map[string]*corestate.StoredToken{}
 	}
+	sess.AccessTokens[useratok.TokenId] = satok
 
-	at := &corestate.AccessToken{
-		AccessToken: atokpb,
-		Metadata:    tresp.Metadata,
-	}
+	// TODO - generate refresh token if requested/allowed
 
-	// Update the code with this token. We use this to track that the code is
-	// now invalid rather than just deleting it, so we can detect potential
-	// replay attacks and invalidate all issued credentials as a precaution.
-	//
-	// https://tools.ietf.org/html/rfc6819#section-4.4.1.1
-	ac.AccessToken = at.AccessToken
-	if _, err := o.storage.Put(ctx, authCodeKeyspace, tok.ID(), acVer, ac); err != nil {
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to update access code", Cause: err}
-	}
-
-	// Save the access token with the right expiry
-	if _, err := o.storage.PutWithExpiry(ctx, accessTokenKeyspace, atok.ID(), 0, at, o.now().Add(o.accessTokenValidityTime)); err != nil {
+	// TODO - refresh
+	if _, err := o.storage.PutWithExpiry(ctx, authSessionKeyspace, ucode.SessionId, sessVer, sess, o.now().Add(o.accessTokenValidityTime)); err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
 	}
 
+	accessTok, err := marshalToken(useratok)
+	if err != nil {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal user token", Cause: err}
+	}
+
 	return &tokenResponse{
-		AccessToken: atok.String(),
+		AccessToken: accessTok,
 		TokenType:   "bearer",
 		ExpiresIn:   o.accessTokenValidityTime,
 		ExtraParams: map[string]interface{}{

@@ -7,7 +7,7 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	any "github.com/golang/protobuf/ptypes/any"
-	_ "github.com/golang/protobuf/ptypes/timestamp"
+	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	_ "github.com/golang/protobuf/ptypes/wrappers"
 	math "math"
 )
@@ -22,6 +22,37 @@ var _ = math.Inf
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
+
+type TokenType int32
+
+const (
+	TokenType_UNKNOWN       TokenType = 0
+	TokenType_AUTH_CODE     TokenType = 1
+	TokenType_ACCESS_TOKEN  TokenType = 2
+	TokenType_REFRESH_TOKEN TokenType = 3
+)
+
+var TokenType_name = map[int32]string{
+	0: "UNKNOWN",
+	1: "AUTH_CODE",
+	2: "ACCESS_TOKEN",
+	3: "REFRESH_TOKEN",
+}
+
+var TokenType_value = map[string]int32{
+	"UNKNOWN":       0,
+	"AUTH_CODE":     1,
+	"ACCESS_TOKEN":  2,
+	"REFRESH_TOKEN": 3,
+}
+
+func (x TokenType) String() string {
+	return proto.EnumName(TokenType_name, int32(x))
+}
+
+func (TokenType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_0d2c4ccf1453ffdb, []int{0}
+}
 
 type AuthRequest_ResponseType int32
 
@@ -52,7 +83,7 @@ func (AuthRequest_ResponseType) EnumDescriptor() ([]byte, []int) {
 }
 
 // AuthRequest represents that state for an inbound request to auth. It tracks
-// this until the Code is issued, at which time it is replaced.
+// this until the Session is started, at which time it is replaced.
 //
 // It is keyed by a unique identifier for this flow
 type AuthRequest struct {
@@ -134,267 +165,284 @@ func (m *AuthRequest) GetResponseType() AuthRequest_ResponseType {
 	return AuthRequest_UNKNOWN
 }
 
-// AuthCode represents the state for a request we are going to proceed with, and
-// have issued a authorization code for.
-//
-// It is keyed by the the ID of the auth code
-type AuthCode struct {
-	Code *Token `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	// The original request this code was written for
-	AuthRequest *AuthRequest `protobuf:"bytes,2,opt,name=auth_request,json=authRequest,proto3" json:"auth_request,omitempty"`
+// Session represents an authenticated user from the time they are issued a
+// code, until their last refresh/access token expires.
+type Session struct {
+	ClientId string   `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	Scopes   []string `protobuf:"bytes,2,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	// metadata is implementation-specific state for this "user". it is threaded
 	// through all of the steps in the process. This should contain the
 	// information required to serve requests to this service.
-	Metadata *any.Any `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// The auth token this code was redeemed for. If a request comes in to redeem
-	// a code that already has a token attached to it, we should ignore the
-	// request and discard the auth token we already issued.
-	//
-	// https://tools.ietf.org/html/rfc6819#section-4.4.1.1
-	// https://tools.ietf.org/html/rfc6819#section-5.2.1.1
-	AccessToken          *Token   `protobuf:"bytes,6,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	Metadata *any.Any `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	// The authorization code that was issued for the code flow.
+	AuthCode *StoredToken `protobuf:"bytes,4,opt,name=auth_code,json=authCode,proto3" json:"auth_code,omitempty"`
+	// The access tokens that have been issued to the end user, keyed by the ID
+	AccessTokens map[string]*StoredToken `protobuf:"bytes,5,rep,name=access_tokens,json=accessTokens,proto3" json:"access_tokens,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// The refresh tokens that have been issued to the end user, keyed by the ID
+	RefreshTokens        map[string]*StoredToken `protobuf:"bytes,6,rep,name=refresh_tokens,json=refreshTokens,proto3" json:"refresh_tokens,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
+	XXX_unrecognized     []byte                  `json:"-"`
+	XXX_sizecache        int32                   `json:"-"`
 }
 
-func (m *AuthCode) Reset()         { *m = AuthCode{} }
-func (m *AuthCode) String() string { return proto.CompactTextString(m) }
-func (*AuthCode) ProtoMessage()    {}
-func (*AuthCode) Descriptor() ([]byte, []int) {
+func (m *Session) Reset()         { *m = Session{} }
+func (m *Session) String() string { return proto.CompactTextString(m) }
+func (*Session) ProtoMessage()    {}
+func (*Session) Descriptor() ([]byte, []int) {
 	return fileDescriptor_0d2c4ccf1453ffdb, []int{1}
 }
 
-func (m *AuthCode) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AuthCode.Unmarshal(m, b)
+func (m *Session) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Session.Unmarshal(m, b)
 }
-func (m *AuthCode) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AuthCode.Marshal(b, m, deterministic)
+func (m *Session) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Session.Marshal(b, m, deterministic)
 }
-func (m *AuthCode) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AuthCode.Merge(m, src)
+func (m *Session) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Session.Merge(m, src)
 }
-func (m *AuthCode) XXX_Size() int {
-	return xxx_messageInfo_AuthCode.Size(m)
+func (m *Session) XXX_Size() int {
+	return xxx_messageInfo_Session.Size(m)
 }
-func (m *AuthCode) XXX_DiscardUnknown() {
-	xxx_messageInfo_AuthCode.DiscardUnknown(m)
+func (m *Session) XXX_DiscardUnknown() {
+	xxx_messageInfo_Session.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_AuthCode proto.InternalMessageInfo
+var xxx_messageInfo_Session proto.InternalMessageInfo
 
-func (m *AuthCode) GetCode() *Token {
+func (m *Session) GetClientId() string {
 	if m != nil {
-		return m.Code
+		return m.ClientId
+	}
+	return ""
+}
+
+func (m *Session) GetScopes() []string {
+	if m != nil {
+		return m.Scopes
 	}
 	return nil
 }
 
-func (m *AuthCode) GetAuthRequest() *AuthRequest {
-	if m != nil {
-		return m.AuthRequest
-	}
-	return nil
-}
-
-func (m *AuthCode) GetMetadata() *any.Any {
+func (m *Session) GetMetadata() *any.Any {
 	if m != nil {
 		return m.Metadata
 	}
 	return nil
 }
 
-func (m *AuthCode) GetAccessToken() *Token {
+func (m *Session) GetAuthCode() *StoredToken {
 	if m != nil {
-		return m.AccessToken
+		return m.AuthCode
 	}
 	return nil
 }
 
-// AccessToken represents an access token that was issued to the user. This is
-// used for calls to the userinfo endpoint
-//
-// It is keyed by the the ID of the access token
-type AccessToken struct {
-	AccessToken          *Token   `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
-	Metadata             *any.Any `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
+func (m *Session) GetAccessTokens() map[string]*StoredToken {
+	if m != nil {
+		return m.AccessTokens
+	}
+	return nil
+}
+
+func (m *Session) GetRefreshTokens() map[string]*StoredToken {
+	if m != nil {
+		return m.RefreshTokens
+	}
+	return nil
+}
+
+// StoredToken represents the session-persisted state of a token
+// we issued to a user
+type StoredToken struct {
+	TokenType TokenType `protobuf:"varint,1,opt,name=token_type,json=tokenType,proto3,enum=deci.corestate.v1beta1.TokenType" json:"token_type,omitempty"`
+	// bcrypted version of the token that was issued to the user
+	Bcrypted []byte `protobuf:"bytes,2,opt,name=bcrypted,proto3" json:"bcrypted,omitempty"`
+	// when this token expires
+	ExpiresAt *timestamp.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// if this token has been forced expired
+	Expired              bool     `protobuf:"varint,4,opt,name=expired,proto3" json:"expired,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *AccessToken) Reset()         { *m = AccessToken{} }
-func (m *AccessToken) String() string { return proto.CompactTextString(m) }
-func (*AccessToken) ProtoMessage()    {}
-func (*AccessToken) Descriptor() ([]byte, []int) {
+func (m *StoredToken) Reset()         { *m = StoredToken{} }
+func (m *StoredToken) String() string { return proto.CompactTextString(m) }
+func (*StoredToken) ProtoMessage()    {}
+func (*StoredToken) Descriptor() ([]byte, []int) {
 	return fileDescriptor_0d2c4ccf1453ffdb, []int{2}
 }
 
-func (m *AccessToken) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AccessToken.Unmarshal(m, b)
+func (m *StoredToken) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_StoredToken.Unmarshal(m, b)
 }
-func (m *AccessToken) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AccessToken.Marshal(b, m, deterministic)
+func (m *StoredToken) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_StoredToken.Marshal(b, m, deterministic)
 }
-func (m *AccessToken) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AccessToken.Merge(m, src)
+func (m *StoredToken) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StoredToken.Merge(m, src)
 }
-func (m *AccessToken) XXX_Size() int {
-	return xxx_messageInfo_AccessToken.Size(m)
+func (m *StoredToken) XXX_Size() int {
+	return xxx_messageInfo_StoredToken.Size(m)
 }
-func (m *AccessToken) XXX_DiscardUnknown() {
-	xxx_messageInfo_AccessToken.DiscardUnknown(m)
+func (m *StoredToken) XXX_DiscardUnknown() {
+	xxx_messageInfo_StoredToken.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_AccessToken proto.InternalMessageInfo
+var xxx_messageInfo_StoredToken proto.InternalMessageInfo
 
-func (m *AccessToken) GetAccessToken() *Token {
+func (m *StoredToken) GetTokenType() TokenType {
 	if m != nil {
-		return m.AccessToken
+		return m.TokenType
+	}
+	return TokenType_UNKNOWN
+}
+
+func (m *StoredToken) GetBcrypted() []byte {
+	if m != nil {
+		return m.Bcrypted
 	}
 	return nil
 }
 
-func (m *AccessToken) GetMetadata() *any.Any {
+func (m *StoredToken) GetExpiresAt() *timestamp.Timestamp {
 	if m != nil {
-		return m.Metadata
+		return m.ExpiresAt
 	}
 	return nil
 }
 
-// RefreshToken is a RefreshToken that was issued to the user.
-//
-// It is keyed by the the ID of the refresh token
-type RefreshToken struct {
-	RefreshToken         *Token   `protobuf:"bytes,1,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+func (m *StoredToken) GetExpired() bool {
+	if m != nil {
+		return m.Expired
+	}
+	return false
+}
+
+// UserToken is the value we issue directly to users. The message is serialized,
+// then base64 encoded to make up the issued version.
+type UserToken struct {
+	// The type of token this actually id
+	TokenType TokenType `protobuf:"varint,1,opt,name=token_type,json=tokenType,proto3,enum=deci.corestate.v1beta1.TokenType" json:"token_type,omitempty"`
+	// the ID of the session this token corresponds to
+	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// identifier of this token, to look it up
+	TokenId string `protobuf:"bytes,3,opt,name=token_id,json=tokenId,proto3" json:"token_id,omitempty"`
+	// the token itself, to be compared to the bcrypt version on the backend
+	Token                []byte   `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *RefreshToken) Reset()         { *m = RefreshToken{} }
-func (m *RefreshToken) String() string { return proto.CompactTextString(m) }
-func (*RefreshToken) ProtoMessage()    {}
-func (*RefreshToken) Descriptor() ([]byte, []int) {
+func (m *UserToken) Reset()         { *m = UserToken{} }
+func (m *UserToken) String() string { return proto.CompactTextString(m) }
+func (*UserToken) ProtoMessage()    {}
+func (*UserToken) Descriptor() ([]byte, []int) {
 	return fileDescriptor_0d2c4ccf1453ffdb, []int{3}
 }
 
-func (m *RefreshToken) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_RefreshToken.Unmarshal(m, b)
+func (m *UserToken) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_UserToken.Unmarshal(m, b)
 }
-func (m *RefreshToken) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_RefreshToken.Marshal(b, m, deterministic)
+func (m *UserToken) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_UserToken.Marshal(b, m, deterministic)
 }
-func (m *RefreshToken) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RefreshToken.Merge(m, src)
+func (m *UserToken) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_UserToken.Merge(m, src)
 }
-func (m *RefreshToken) XXX_Size() int {
-	return xxx_messageInfo_RefreshToken.Size(m)
+func (m *UserToken) XXX_Size() int {
+	return xxx_messageInfo_UserToken.Size(m)
 }
-func (m *RefreshToken) XXX_DiscardUnknown() {
-	xxx_messageInfo_RefreshToken.DiscardUnknown(m)
+func (m *UserToken) XXX_DiscardUnknown() {
+	xxx_messageInfo_UserToken.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_RefreshToken proto.InternalMessageInfo
+var xxx_messageInfo_UserToken proto.InternalMessageInfo
 
-func (m *RefreshToken) GetRefreshToken() *Token {
+func (m *UserToken) GetTokenType() TokenType {
 	if m != nil {
-		return m.RefreshToken
+		return m.TokenType
 	}
-	return nil
+	return TokenType_UNKNOWN
 }
 
-// Token represents a single "token" that was issued to a user. this is an
-// opaque value that could be used as the code, access or refresh token values.
-type Token struct {
-	// unique identity for this token.
-	Id []byte `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// bcrypted version of the token
-	Bcrypt               []byte   `protobuf:"bytes,2,opt,name=bcrypt,proto3" json:"bcrypt,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Token) Reset()         { *m = Token{} }
-func (m *Token) String() string { return proto.CompactTextString(m) }
-func (*Token) ProtoMessage()    {}
-func (*Token) Descriptor() ([]byte, []int) {
-	return fileDescriptor_0d2c4ccf1453ffdb, []int{4}
-}
-
-func (m *Token) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Token.Unmarshal(m, b)
-}
-func (m *Token) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Token.Marshal(b, m, deterministic)
-}
-func (m *Token) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Token.Merge(m, src)
-}
-func (m *Token) XXX_Size() int {
-	return xxx_messageInfo_Token.Size(m)
-}
-func (m *Token) XXX_DiscardUnknown() {
-	xxx_messageInfo_Token.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Token proto.InternalMessageInfo
-
-func (m *Token) GetId() []byte {
+func (m *UserToken) GetSessionId() string {
 	if m != nil {
-		return m.Id
+		return m.SessionId
 	}
-	return nil
+	return ""
 }
 
-func (m *Token) GetBcrypt() []byte {
+func (m *UserToken) GetTokenId() string {
 	if m != nil {
-		return m.Bcrypt
+		return m.TokenId
+	}
+	return ""
+}
+
+func (m *UserToken) GetToken() []byte {
+	if m != nil {
+		return m.Token
 	}
 	return nil
 }
 
 func init() {
+	proto.RegisterEnum("deci.corestate.v1beta1.TokenType", TokenType_name, TokenType_value)
 	proto.RegisterEnum("deci.corestate.v1beta1.AuthRequest_ResponseType", AuthRequest_ResponseType_name, AuthRequest_ResponseType_value)
 	proto.RegisterType((*AuthRequest)(nil), "deci.corestate.v1beta1.AuthRequest")
-	proto.RegisterType((*AuthCode)(nil), "deci.corestate.v1beta1.AuthCode")
-	proto.RegisterType((*AccessToken)(nil), "deci.corestate.v1beta1.AccessToken")
-	proto.RegisterType((*RefreshToken)(nil), "deci.corestate.v1beta1.RefreshToken")
-	proto.RegisterType((*Token)(nil), "deci.corestate.v1beta1.Token")
+	proto.RegisterType((*Session)(nil), "deci.corestate.v1beta1.Session")
+	proto.RegisterMapType((map[string]*StoredToken)(nil), "deci.corestate.v1beta1.Session.AccessTokensEntry")
+	proto.RegisterMapType((map[string]*StoredToken)(nil), "deci.corestate.v1beta1.Session.RefreshTokensEntry")
+	proto.RegisterType((*StoredToken)(nil), "deci.corestate.v1beta1.StoredToken")
+	proto.RegisterType((*UserToken)(nil), "deci.corestate.v1beta1.UserToken")
 }
 
 func init() { proto.RegisterFile("storage.proto", fileDescriptor_0d2c4ccf1453ffdb) }
 
 var fileDescriptor_0d2c4ccf1453ffdb = []byte{
-	// 463 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x52, 0x5d, 0x6f, 0xd3, 0x30,
-	0x14, 0x25, 0x59, 0x5b, 0xda, 0xeb, 0x6c, 0xaa, 0xac, 0x69, 0x0a, 0x43, 0x40, 0x09, 0x2f, 0x7d,
-	0x4a, 0x3f, 0xf8, 0x03, 0x74, 0x63, 0x48, 0x68, 0x52, 0x2b, 0x59, 0xad, 0x90, 0x78, 0xa9, 0x5c,
-	0xe7, 0xae, 0x8d, 0x58, 0xe3, 0x60, 0x3b, 0xa0, 0x3c, 0xf2, 0x37, 0xf8, 0xa7, 0xbc, 0xa1, 0xd8,
-	0xd9, 0x08, 0x03, 0xc4, 0xf6, 0x78, 0x7c, 0x8e, 0x8f, 0xce, 0xbd, 0xe7, 0xc2, 0xa1, 0x36, 0x52,
-	0xf1, 0x2d, 0xc6, 0xb9, 0x92, 0x46, 0xd2, 0x93, 0x04, 0x45, 0x1a, 0x0b, 0xa9, 0x50, 0x1b, 0x6e,
-	0x30, 0xfe, 0x32, 0xd9, 0xa0, 0xe1, 0x93, 0xd3, 0x17, 0x5b, 0x29, 0xb7, 0xd7, 0x38, 0xb2, 0xaa,
-	0x4d, 0x71, 0x35, 0x32, 0xe9, 0xbe, 0x92, 0xec, 0x73, 0xf7, 0xf1, 0xf4, 0xf9, 0x5d, 0xc1, 0x57,
-	0xc5, 0xf3, 0x1c, 0x95, 0xae, 0xf9, 0x27, 0x77, 0x79, 0x9e, 0x95, 0x8e, 0x8a, 0xbe, 0xfb, 0x40,
-	0x66, 0x85, 0xd9, 0x31, 0xfc, 0x5c, 0xa0, 0x36, 0xf4, 0x29, 0xf4, 0xc4, 0x75, 0x8a, 0x99, 0x59,
-	0xa7, 0x49, 0xe8, 0x0d, 0xbc, 0x61, 0x8f, 0x75, 0xdd, 0xc3, 0xfb, 0x84, 0xbe, 0x84, 0x40, 0x61,
-	0x92, 0x2a, 0x14, 0x66, 0x5d, 0xa8, 0x34, 0xf4, 0x2d, 0x4f, 0x6e, 0xde, 0x56, 0x2a, 0xa5, 0xc7,
-	0xd0, 0xb6, 0xe1, 0xc3, 0x03, 0xcb, 0x39, 0x40, 0x4f, 0xa0, 0xa3, 0x85, 0xcc, 0x51, 0x87, 0xad,
-	0xc1, 0xc1, 0xb0, 0xc7, 0x6a, 0x54, 0xa9, 0x33, 0x99, 0x09, 0x0c, 0xdb, 0x4e, 0x6d, 0x01, 0x5d,
-	0xc1, 0xa1, 0x42, 0x9d, 0xcb, 0x4c, 0xe3, 0xda, 0x94, 0x39, 0x86, 0x9d, 0x81, 0x37, 0x3c, 0x9a,
-	0x8e, 0xe3, 0xbf, 0xef, 0x27, 0x6e, 0xe4, 0x8f, 0x59, 0xfd, 0x71, 0x59, 0xe6, 0xc8, 0x02, 0xd5,
-	0x40, 0xd1, 0x18, 0x82, 0x26, 0x4b, 0x09, 0x3c, 0x5e, 0xcd, 0x2f, 0xe7, 0x8b, 0x0f, 0xf3, 0xfe,
-	0x23, 0xda, 0x85, 0xd6, 0xf9, 0xe2, 0xed, 0x45, 0xdf, 0xa3, 0x3d, 0x68, 0x2f, 0x17, 0x97, 0x17,
-	0xf3, 0xbe, 0x1f, 0xfd, 0xf0, 0xa0, 0x5b, 0x99, 0x9f, 0xcb, 0x04, 0xe9, 0x04, 0x5a, 0x42, 0x26,
-	0x68, 0x97, 0x42, 0xa6, 0xcf, 0xfe, 0x15, 0x66, 0x29, 0x3f, 0x61, 0xc6, 0xac, 0x94, 0xbe, 0x83,
-	0x80, 0x17, 0x66, 0xb7, 0x56, 0x2e, 0x9c, 0xdd, 0x17, 0x99, 0xbe, 0xba, 0xc7, 0x1c, 0x8c, 0xf0,
-	0x46, 0x29, 0x63, 0xe8, 0xee, 0xd1, 0xf0, 0x84, 0x1b, 0x6e, 0x37, 0x45, 0xa6, 0xc7, 0xb1, 0xab,
-	0x34, 0xbe, 0xa9, 0x34, 0x9e, 0x65, 0x25, 0xbb, 0x55, 0xd1, 0x37, 0x10, 0x70, 0x21, 0x50, 0xeb,
-	0xb5, 0xa9, 0xf2, 0xd8, 0x0d, 0xfe, 0x37, 0x34, 0x71, 0x5f, 0x2c, 0x88, 0xbe, 0x79, 0x40, 0x66,
-	0xbf, 0xf0, 0x1f, 0x8e, 0xde, 0x43, 0x1d, 0x7f, 0x9b, 0xc2, 0xbf, 0xcf, 0x14, 0x11, 0xab, 0x1a,
-	0xbb, 0x52, 0xa8, 0x77, 0xce, 0xe1, 0xac, 0x3a, 0x0c, 0x8b, 0x1f, 0x12, 0x22, 0x50, 0x0d, 0x8f,
-	0x68, 0x04, 0x6d, 0x67, 0x76, 0x04, 0x7e, 0x7d, 0xe2, 0x01, 0xf3, 0xd3, 0xa4, 0xba, 0xd1, 0x8d,
-	0x50, 0x65, 0xee, 0x6a, 0x0a, 0x58, 0x8d, 0xce, 0xc8, 0xc7, 0xde, 0xad, 0xf3, 0xa6, 0x63, 0x93,
-	0xbe, 0xfe, 0x19, 0x00, 0x00, 0xff, 0xff, 0x22, 0x87, 0x1d, 0xae, 0xba, 0x03, 0x00, 0x00,
+	// 649 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x54, 0xcf, 0x6e, 0xd3, 0x4e,
+	0x10, 0xfe, 0x39, 0xff, 0x3d, 0x49, 0xaa, 0x74, 0x55, 0x55, 0x6e, 0x7e, 0x02, 0xd2, 0x70, 0x89,
+	0x38, 0xb8, 0x6d, 0xb8, 0x50, 0x4e, 0x0d, 0x21, 0xa8, 0x55, 0x51, 0x2a, 0x6d, 0x12, 0x10, 0x5c,
+	0x2c, 0xc7, 0x3b, 0x6d, 0xad, 0xb6, 0x5e, 0xb3, 0xbb, 0x29, 0xf8, 0x55, 0x90, 0x78, 0x09, 0x9e,
+	0x80, 0x47, 0x43, 0xde, 0x75, 0x82, 0xdb, 0x52, 0xe0, 0xd0, 0xdb, 0x7e, 0x33, 0xf3, 0xcd, 0xce,
+	0xcc, 0x7e, 0x3b, 0xd0, 0x94, 0x8a, 0x0b, 0xff, 0x0c, 0xdd, 0x58, 0x70, 0xc5, 0xc9, 0x26, 0xc3,
+	0x20, 0x74, 0x03, 0x2e, 0x50, 0x2a, 0x5f, 0xa1, 0x7b, 0xbd, 0x37, 0x47, 0xe5, 0xef, 0xb5, 0x9f,
+	0x9c, 0x71, 0x7e, 0x76, 0x89, 0x3b, 0x3a, 0x6a, 0xbe, 0x38, 0xdd, 0x51, 0xe1, 0x55, 0x1a, 0x72,
+	0x15, 0x1b, 0x62, 0xfb, 0xf1, 0xed, 0x80, 0xcf, 0xc2, 0x8f, 0x63, 0x14, 0x32, 0xf3, 0x6f, 0xdd,
+	0xf6, 0xfb, 0x51, 0x62, 0x5c, 0xdd, 0xaf, 0x05, 0xa8, 0x0f, 0x16, 0xea, 0x9c, 0xe2, 0xa7, 0x05,
+	0x4a, 0x45, 0xfe, 0x07, 0x3b, 0xb8, 0x0c, 0x31, 0x52, 0x5e, 0xc8, 0x1c, 0xab, 0x63, 0xf5, 0x6c,
+	0x5a, 0x33, 0x86, 0x23, 0x46, 0xb6, 0xa1, 0x21, 0x90, 0x85, 0x02, 0x03, 0xe5, 0x2d, 0x44, 0xe8,
+	0x14, 0xb4, 0xbf, 0xbe, 0xb4, 0xcd, 0x44, 0x48, 0x36, 0xa0, 0xac, 0x8b, 0x77, 0x8a, 0xda, 0x67,
+	0x00, 0xd9, 0x84, 0x8a, 0x0c, 0x78, 0x8c, 0xd2, 0x29, 0x75, 0x8a, 0x3d, 0x9b, 0x66, 0x28, 0x8d,
+	0x8e, 0x78, 0x14, 0xa0, 0x53, 0x36, 0xd1, 0x1a, 0x90, 0x19, 0x34, 0x05, 0xca, 0x98, 0x47, 0x12,
+	0x3d, 0x95, 0xc4, 0xe8, 0x54, 0x3a, 0x56, 0x6f, 0xad, 0xbf, 0xeb, 0xfe, 0x7e, 0x3e, 0x6e, 0xae,
+	0x7e, 0x97, 0x66, 0xc4, 0x69, 0x12, 0x23, 0x6d, 0x88, 0x1c, 0xea, 0xee, 0x42, 0x23, 0xef, 0x25,
+	0x75, 0xa8, 0xce, 0xc6, 0xc7, 0xe3, 0x93, 0xf7, 0xe3, 0xd6, 0x7f, 0xa4, 0x06, 0xa5, 0xe1, 0xc9,
+	0xeb, 0x51, 0xcb, 0x22, 0x36, 0x94, 0xa7, 0x27, 0xc7, 0xa3, 0x71, 0xab, 0xd0, 0xfd, 0x5e, 0x82,
+	0xea, 0x04, 0xa5, 0x0c, 0x79, 0xf4, 0xe7, 0xc1, 0xfc, 0xea, 0xaf, 0x70, 0xa3, 0xbf, 0x5d, 0xa8,
+	0x5d, 0xa1, 0xf2, 0x99, 0xaf, 0x7c, 0x3d, 0x90, 0x7a, 0x7f, 0xc3, 0x35, 0x6f, 0xe1, 0x2e, 0xdf,
+	0xc2, 0x1d, 0x44, 0x09, 0x5d, 0x45, 0x91, 0x03, 0xb0, 0xfd, 0x85, 0x3a, 0xf7, 0x02, 0xce, 0xd0,
+	0x29, 0x69, 0xca, 0xd3, 0xfb, 0xfa, 0x9e, 0x28, 0x2e, 0x90, 0x4d, 0xf9, 0x05, 0x46, 0xb4, 0x96,
+	0xb2, 0x86, 0x9c, 0x21, 0x79, 0x07, 0x4d, 0x3f, 0x08, 0x50, 0x4a, 0x4f, 0xa5, 0x1e, 0xe9, 0x94,
+	0x3b, 0xc5, 0x5e, 0xbd, 0xbf, 0x77, 0x6f, 0x16, 0xd3, 0xa0, 0x3b, 0xd0, 0x24, 0x9d, 0x4d, 0x8e,
+	0x22, 0x25, 0x12, 0xda, 0xf0, 0x73, 0x26, 0xf2, 0x01, 0xd6, 0x04, 0x9e, 0x0a, 0x94, 0xe7, 0xcb,
+	0xc4, 0x15, 0x9d, 0xb8, 0xff, 0xb7, 0xc4, 0xd4, 0xb0, 0xf2, 0x99, 0x9b, 0x22, 0x6f, 0x6b, 0x33,
+	0x58, 0xbf, 0x73, 0x3b, 0x69, 0x41, 0xf1, 0x02, 0x93, 0x6c, 0xd4, 0xe9, 0x91, 0xec, 0x43, 0xf9,
+	0xda, 0xbf, 0x5c, 0xa0, 0xd6, 0xdd, 0x3f, 0xce, 0xc5, 0x30, 0x5e, 0x16, 0x5e, 0x58, 0x6d, 0x04,
+	0x72, 0xb7, 0x94, 0x07, 0xbf, 0xa6, 0xfb, 0xc3, 0x82, 0x7a, 0xce, 0x45, 0x0e, 0x00, 0xf4, 0xbc,
+	0x8c, 0x94, 0x2d, 0x2d, 0xe5, 0xed, 0xfb, 0x72, 0x6a, 0x8a, 0xd6, 0xae, 0xad, 0x96, 0x47, 0xd2,
+	0x86, 0xda, 0x3c, 0x10, 0x49, 0xac, 0x90, 0xe9, 0x9a, 0x1a, 0x74, 0x85, 0xc9, 0x3e, 0x00, 0x7e,
+	0x89, 0x43, 0x81, 0xd2, 0xf3, 0x55, 0xa6, 0xb1, 0xf6, 0x1d, 0x8d, 0x4d, 0x97, 0x0b, 0x83, 0xda,
+	0x59, 0xf4, 0x40, 0x11, 0x07, 0xaa, 0x06, 0x30, 0x2d, 0xb4, 0x1a, 0x5d, 0xc2, 0xee, 0x37, 0x0b,
+	0xec, 0x99, 0x44, 0xf1, 0x50, 0x0d, 0x3c, 0x02, 0x90, 0x46, 0x0c, 0xe9, 0xe7, 0x31, 0x5b, 0xc3,
+	0xce, 0x2c, 0x47, 0x8c, 0x6c, 0x41, 0xcd, 0x5c, 0x10, 0xb2, 0x6c, 0x6d, 0x54, 0x35, 0x3e, 0x62,
+	0xe9, 0x82, 0xd0, 0x47, 0x5d, 0x61, 0x83, 0x1a, 0xf0, 0xec, 0x2d, 0xd8, 0xab, 0x7b, 0x6e, 0x7e,
+	0xe3, 0x26, 0xd8, 0x83, 0xd9, 0xf4, 0xd0, 0xcb, 0xfe, 0x72, 0x0b, 0x1a, 0x83, 0xe1, 0x70, 0x34,
+	0x99, 0x78, 0xd9, 0x97, 0x26, 0xeb, 0xd0, 0xa4, 0xa3, 0x37, 0x74, 0x34, 0x39, 0xcc, 0x4c, 0xc5,
+	0x57, 0xf5, 0x8f, 0xf6, 0xaa, 0x8f, 0x79, 0x45, 0xcf, 0xec, 0xf9, 0xcf, 0x00, 0x00, 0x00, 0xff,
+	0xff, 0x18, 0x22, 0xca, 0x6e, 0x9b, 0x05, 0x00, 0x00,
 }

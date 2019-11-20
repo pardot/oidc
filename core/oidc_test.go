@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -193,10 +192,12 @@ func TestFinishAuthorization(t *testing.T) {
 				}
 
 				// make sure the code resolves to an authCode
-				code := locp.Query().Get("code")
-				codesp := strings.SplitN(code, ".", 2) // DB ID is the first part, so split
-				authCode := corestate.AuthCode{}
-				if _, err := stor.Get(context.Background(), authCodeKeyspace, codesp[0], &authCode); err != nil {
+				codetok, err := unmarshalToken(locp.Query().Get("code"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				sess := corestate.Session{}
+				if _, err := stor.Get(context.Background(), authSessionKeyspace, codetok.SessionId, &sess); err != nil {
 					t.Errorf("wanted no error fetching auth code, got: %v", err)
 				}
 
@@ -307,15 +308,15 @@ func TestToken(t *testing.T) {
 		}
 	}
 
-	newCode := func(t *testing.T, stor storage.Storage) (tok *token) {
+	newCodeSess := func(t *testing.T, stor storage.Storage) (usertok string) {
 		t.Helper()
 
-		tok, err := newToken()
+		utok, stok, err := newToken(mustGenerateID(), corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		tokPB, err := tok.ToPB()
+		utokstr, err := marshalToken(utok)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,19 +326,17 @@ func TestToken(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		code := corestate.AuthCode{
-			Code:     tokPB,
+		sess := corestate.Session{
+			AuthCode: stok,
 			Metadata: meta,
-			AuthRequest: &corestate.AuthRequest{
-				ClientId: clientID,
-			},
+			ClientId: clientID,
 		}
 
-		if _, err := stor.Put(context.Background(), authCodeKeyspace, tok.ID(), 0, &code); err != nil {
+		if _, err := stor.Put(context.Background(), authSessionKeyspace, utok.SessionId, 0, &sess); err != nil {
 			t.Fatal(err)
 		}
 
-		return tok
+		return utokstr
 	}
 
 	newHandler := func(t *testing.T) func(req *TokenRequest) (*TokenResponse, error) {
@@ -355,11 +354,11 @@ func TestToken(t *testing.T) {
 
 	t.Run("Happy path", func(t *testing.T) {
 		o := newOIDC()
-		codeToken := newCode(t, o.storage)
+		codeToken := newCodeSess(t, o.storage)
 
 		treq := &tokenRequest{
 			GrantType:    GrantTypeAuthorizationCode,
-			Code:         codeToken.String(),
+			Code:         codeToken,
 			RedirectURI:  redirectURI,
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -377,11 +376,11 @@ func TestToken(t *testing.T) {
 
 	t.Run("Redeeming an already redeemed code should fail", func(t *testing.T) {
 		o := newOIDC()
-		codeToken := newCode(t, o.storage)
+		codeToken := newCodeSess(t, o.storage)
 
 		treq := &tokenRequest{
 			GrantType:    GrantTypeAuthorizationCode,
-			Code:         codeToken.String(),
+			Code:         codeToken,
 			RedirectURI:  redirectURI,
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -401,11 +400,11 @@ func TestToken(t *testing.T) {
 
 	t.Run("Invalid client secret should fail", func(t *testing.T) {
 		o := newOIDC()
-		codeToken := newCode(t, o.storage)
+		codeToken := newCodeSess(t, o.storage)
 
 		treq := &tokenRequest{
 			GrantType:    GrantTypeAuthorizationCode,
-			Code:         codeToken.String(),
+			Code:         codeToken,
 			RedirectURI:  redirectURI,
 			ClientID:     clientID,
 			ClientSecret: "invalid-secret",
@@ -419,11 +418,11 @@ func TestToken(t *testing.T) {
 
 	t.Run("Client secret that differs from the original client should fail", func(t *testing.T) {
 		o := newOIDC()
-		codeToken := newCode(t, o.storage)
+		codeToken := newCodeSess(t, o.storage)
 
 		treq := &tokenRequest{
 			GrantType:   GrantTypeAuthorizationCode,
-			Code:        codeToken.String(),
+			Code:        codeToken,
 			RedirectURI: redirectURI,
 			// This is not the credentials the code should be tracking, but are
 			// otherwise valid

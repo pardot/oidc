@@ -1,12 +1,13 @@
 package core
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"strings"
+	"time"
 
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	corestate "github.com/pardot/oidc/proto/deci/corestate/v1beta1"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -16,94 +17,46 @@ const (
 	tokenLen   = 48
 )
 
-var tokenEncoder = base64.RawURLEncoding
-
-// token is an opaque, unique value that can be used as a code/access
-// token/refresh token. it is designed for secure data storage (i.e leaking data
-// won't give people usable data)
-type token struct {
-	id     []byte
-	raw    []byte
-	hashed []byte
-}
-
-// newToken generates a fresh token, from random data
-func newToken() (*token, error) {
+// newToken generates a fresh token, from random data. The user and stored
+// states are returned.
+func newToken(sessID string, tokType corestate.TokenType, expires time.Time) (*corestate.UserToken, *corestate.StoredToken, error) {
 	b := make([]byte, tokenIDLen+tokenLen)
 	if _, err := rand.Read(b); err != nil {
-		return nil, fmt.Errorf("error reading random data: %w", err)
+		return nil, nil, fmt.Errorf("error reading random data: %w", err)
 	}
+	tokenID := base64.RawStdEncoding.EncodeToString(b[0 : tokenIDLen-1])
+	rawToken := b[tokenIDLen:]
+
 	bc, err := bcrypt.GenerateFromPassword(b[tokenIDLen:], bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return nil, nil, fmt.Errorf("failed to hash password: %w", err)
 	}
-	return &token{
-		id:     b[0 : tokenIDLen-1],
-		raw:    b[tokenIDLen:],
-		hashed: bc,
-	}, nil
-}
 
-// parseToken parses the string representation of a token.
-func parseToken(t string) (*token, error) {
-	sp := strings.SplitN(t, ".", 2)
-	if len(sp) != 2 {
-		return nil, fmt.Errorf("token is in an invalid format")
-	}
-	id, err := tokenEncoder.DecodeString(sp[0])
+	exp, err := ptypes.TimestampProto(expires)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode key section of access token: %w", err)
+		return nil, nil, fmt.Errorf("failed to convert expiry to proto: %w", err)
 	}
-	raw, err := tokenEncoder.DecodeString(sp[1])
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode token section of access token: %w", err)
+
+	ut := &corestate.UserToken{
+		TokenType: tokType,
+		TokenId:   tokenID,
+		Token:     rawToken,
+		SessionId: sessID,
 	}
-	return &token{
-		id:  id,
-		raw: raw,
-	}, nil
+
+	st := &corestate.StoredToken{
+		TokenType: tokType,
+		Bcrypted:  bc,
+		ExpiresAt: exp,
+	}
+
+	return ut, st, nil
 }
 
-// String returns a string representation of the token, intended for presenting
-// to the user. This is what the should be presented to the user.
-func (t *token) String() string {
-	return fmt.Sprintf(
-		"%s.%s",
-		tokenEncoder.EncodeToString(t.id),
-		tokenEncoder.EncodeToString(t.raw),
-	)
-}
-
-// ID returns an identifier for this token. This should be used for state
-// storage. This is a partial value, after retrieving the full token information
-// should be compared to see if they match
-func (t *token) ID() string {
-	return tokenEncoder.EncodeToString(t.id)
-}
-
-// Equal compares two tokens, and returns true if they match.
-func (t *token) Equal(o *token) (bool, error) {
-	if len(t.raw) > 0 && len(o.raw) > 0 {
-		// both values contain the raw values. They are the same token if these
-		// match
-		return bytes.Equal(t.raw, o.raw), nil
-	}
-
-	// otherwise, compare one of the raw values to a hash. handle either
-	// side being the hashed version
-	var raw, hash []byte
-	if len(t.hashed) > 0 {
-		hash = t.hashed
-		raw = o.raw
-	} else if len(o.hashed) > 0 {
-		hash = o.hashed
-		raw = t.raw
-	} else {
-		// these two values are in no way comparable, so treat as an error
-		return false, fmt.Errorf("tokens are not comparable - missing information required to validate")
-	}
-
-	err := bcrypt.CompareHashAndPassword(hash, raw)
+// tokensMatch compares a deserialized user token, and it's corresponding stored
+// token. if the user token value hashes to the same value on the server.
+func tokensMatch(user *corestate.UserToken, stored *corestate.StoredToken) (bool, error) {
+	err := bcrypt.CompareHashAndPassword(stored.Bcrypted, user.Token)
 	if err == nil {
 		// no error in comparison, they match
 		return true, nil
@@ -114,23 +67,24 @@ func (t *token) Equal(o *token) (bool, error) {
 	return false, fmt.Errorf("failed comparing tokens: %w", err)
 }
 
-func (t *token) ToPB() (*corestate.Token, error) {
-	if len(t.hashed) < 1 {
-		var err error
-		t.hashed, err = bcrypt.GenerateFromPassword(t.raw, bcrypt.DefaultCost)
-		if err != nil {
-			return nil, fmt.Errorf("failed hashing token: %w", err)
-		}
+// marshalToken returns a user-friendly version of the token. This is the base64
+// serialized marshaled proto
+func marshalToken(user *corestate.UserToken) (string, error) {
+	b, err := proto.Marshal(user)
+	if err != nil {
+		return "", fmt.Errorf("couldn't marshal user token to proto: %w", err)
 	}
-	return &corestate.Token{
-		Id:     t.id,
-		Bcrypt: t.hashed,
-	}, nil
+	return base64.RawStdEncoding.EncodeToString(b), nil
 }
 
-func tokenFromPB(t *corestate.Token) *token {
-	return &token{
-		id:     t.Id,
-		hashed: t.Bcrypt,
+func unmarshalToken(tok string) (*corestate.UserToken, error) {
+	b, err := base64.RawStdEncoding.DecodeString(tok)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode of token failed: %w", err)
 	}
+	ut := &corestate.UserToken{}
+	if err := proto.Unmarshal(b, ut); err != nil {
+		return nil, fmt.Errorf("proto decoding of token failed: %w", err)
+	}
+	return ut, err
 }
