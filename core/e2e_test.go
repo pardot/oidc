@@ -13,34 +13,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type csClient struct {
-	Secret      string
-	RedirectURI string
-}
-
-type stubCS struct {
-	validClients map[string]csClient
-}
-
-func (s *stubCS) IsValidClientID(clientID string) (ok bool, err error) {
-	_, ok = s.validClients[clientID]
-	return ok, nil
-}
-
-func (s *stubCS) IsUnauthenticatedClient(clientID string) (ok bool, err error) {
-	return false, nil
-}
-
-func (s *stubCS) ValidateClientSecret(clientID, clientSecret string) (ok bool, err error) {
-	cl, ok := s.validClients[clientID]
-	return ok && clientSecret == cl.Secret, nil
-}
-
-func (s *stubCS) ValidateClientRedirectURI(clientID, redirectURI string) (ok bool, err error) {
-	cl, ok := s.validClients[clientID]
-	return ok && redirectURI == cl.RedirectURI, nil
-}
-
 func TestE2E(t *testing.T) {
 	const (
 		clientID     = "client-id"
@@ -103,6 +75,7 @@ func TestE2E(t *testing.T) {
 				},
 
 				storage: memory.New(),
+				signer:  testSigner,
 
 				authValidityTime:        1 * time.Minute,
 				codeValidityTime:        1 * time.Minute,
@@ -173,7 +146,10 @@ func TestE2E(t *testing.T) {
 				t.Fatal("no id_token included in response")
 			}
 
-			t.Logf("id token: %s", rawIDToken)
+			_, err = testSigner.VerifySignature(ctx, rawIDToken)
+			if err != nil {
+				t.Errorf("want valid token, verification returned error: %v", err)
+			}
 		})
 	}
 }

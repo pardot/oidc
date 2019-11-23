@@ -286,6 +286,7 @@ func TestToken(t *testing.T) {
 	newOIDC := func() *OIDC {
 		return &OIDC{
 			storage: memory.New(),
+			signer:  testSigner,
 
 			clients: &stubCS{
 				validClients: map[string]csClient{

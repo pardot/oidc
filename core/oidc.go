@@ -389,12 +389,22 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal user token", Cause: err}
 	}
 
+	idtb, err := json.Marshal(tresp.IDToken)
+	if err != nil {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal id token", Cause: err}
+	}
+
+	sidt, err := o.signer.Sign(ctx, idtb)
+	if err != nil {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to sign id token", Cause: err}
+	}
+
 	return &tokenResponse{
 		AccessToken: accessTok,
 		TokenType:   "bearer",
 		ExpiresIn:   o.accessTokenValidityTime,
 		ExtraParams: map[string]interface{}{
-			"id_token": "bbbbbb",
+			"id_token": string(sidt),
 		},
 	}, nil
 }
