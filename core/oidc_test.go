@@ -95,9 +95,8 @@ func TestStartAuthorization(t *testing.T) {
 				clients: clientSource,
 				storage: stor,
 
-				authValidityTime:        1 * time.Minute,
-				codeValidityTime:        1 * time.Minute,
-				accessTokenValidityTime: 1 * time.Minute,
+				authValidityTime: 1 * time.Minute,
+				codeValidityTime: 1 * time.Minute,
 
 				now: time.Now,
 			}
@@ -238,12 +237,10 @@ func TestFinishAuthorization(t *testing.T) {
 
 			oidc := &OIDC{
 				storage: stor,
+				now:     time.Now,
 
-				authValidityTime:        1 * time.Minute,
-				codeValidityTime:        1 * time.Minute,
-				accessTokenValidityTime: 1 * time.Minute,
-
-				now: time.Now,
+				authValidityTime: 1 * time.Minute,
+				codeValidityTime: 1 * time.Minute,
 			}
 
 			rec := httptest.NewRecorder()
@@ -301,10 +298,6 @@ func TestToken(t *testing.T) {
 				},
 			},
 
-			authValidityTime:        1 * time.Minute,
-			codeValidityTime:        1 * time.Minute,
-			accessTokenValidityTime: 1 * time.Minute,
-
 			now: time.Now,
 		}
 	}
@@ -349,6 +342,8 @@ func TestToken(t *testing.T) {
 
 			return &TokenResponse{
 				Metadata: meta,
+
+				AccessTokenValidFor: 1 * time.Minute,
 			}, nil
 		}
 	}
@@ -434,6 +429,39 @@ func TestToken(t *testing.T) {
 		_, err := o.token(context.Background(), treq, newHandler(t))
 		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeUnauthorizedClient {
 			t.Errorf("want unauthorized client error, got: %v", err)
+		}
+	})
+
+	t.Run("Reponse access token validity time honoured", func(t *testing.T) {
+		o := newOIDC()
+		codeToken := newCodeSess(t, o.storage)
+
+		treq := &tokenRequest{
+			GrantType:    GrantTypeAuthorizationCode,
+			Code:         codeToken,
+			RedirectURI:  redirectURI,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		ih := newHandler(t)
+		h := func(req *TokenRequest) (*TokenResponse, error) {
+			r, err := ih(req)
+			r.AccessTokenValidFor = 5 * time.Minute
+			return r, err
+		}
+
+		tresp, err := o.token(context.Background(), treq, h)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if tresp.AccessToken == "" {
+			t.Error("token request should have returned an access token, but got none")
+		}
+
+		if tresp.ExpiresIn != 5*time.Minute {
+			t.Errorf("want token exp %s, got: %s", (5 * time.Minute).String(), tresp.ExpiresIn.String())
 		}
 	})
 }

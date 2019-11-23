@@ -74,12 +74,11 @@ func TestE2E(t *testing.T) {
 					},
 				},
 
+				authValidityTime: 1 * time.Minute,
+				codeValidityTime: 1 * time.Minute,
+
 				storage: memory.New(),
 				signer:  testSigner,
-
-				authValidityTime:        1 * time.Minute,
-				codeValidityTime:        1 * time.Minute,
-				accessTokenValidityTime: 1 * time.Minute,
 
 				now: time.Now,
 			}

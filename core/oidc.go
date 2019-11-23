@@ -51,11 +51,27 @@ type ClientSource interface {
 	ValidateClientRedirectURI(clientID, redirectURI string) (ok bool, err error)
 }
 
+const (
+	// DefaultAuthValidityTime is used if the AuthValidityTime is not
+	// configured.
+	DefaultAuthValidityTime = 1 * time.Hour
+	// DefaultCodeValidityTime is used if the CodeValidityTime is not
+	// configured.
+	DefaultCodeValidityTime = 60 * time.Second
+)
+
 // Config sets configuration values for the OIDC flow implementation
 type Config struct {
-	AuthValidityTime        time.Duration
-	CodeValidityTime        time.Duration
-	AccessTokenValidityTime time.Duration
+	// AuthValidityTime is the maximum time an authorization flow/AuthID is
+	// valid. This is the time from Starting to Finishing the authorization. The
+	// optimal time here will be application specific, and should encompass how
+	// long the app expects a user to complete the "upstream" authorization
+	// process.
+	AuthValidityTime time.Duration
+	// CodeValidityTime is the maximum time the authorization code is valid,
+	// before it is exchanged for a token (code flow). This should be a short
+	// value, as the exhange should generally not take long
+	CodeValidityTime time.Duration
 }
 
 // OIDC can be used to handle the various parts of the OIDC auth flow.
@@ -64,25 +80,32 @@ type OIDC struct {
 	clients ClientSource
 	signer  Signer
 
-	authValidityTime        time.Duration
-	codeValidityTime        time.Duration
-	accessTokenValidityTime time.Duration
+	authValidityTime time.Duration
+	codeValidityTime time.Duration
 
 	now func() time.Time
 }
 
 func NewOIDC(cfg *Config, storage Storage, clientSource ClientSource, signer Signer) (*OIDC, error) {
-	return &OIDC{
+	o := &OIDC{
 		storage: storage,
 		clients: clientSource,
 		signer:  signer,
 
-		authValidityTime:        cfg.AuthValidityTime,
-		codeValidityTime:        cfg.CodeValidityTime,
-		accessTokenValidityTime: cfg.AccessTokenValidityTime,
+		authValidityTime: cfg.AuthValidityTime,
+		codeValidityTime: cfg.CodeValidityTime,
 
 		now: time.Now,
-	}, nil
+	}
+
+	if o.authValidityTime == time.Duration(0) {
+		o.authValidityTime = DefaultAuthValidityTime
+	}
+	if o.codeValidityTime == time.Duration(0) {
+		o.codeValidityTime = DefaultCodeValidityTime
+	}
+
+	return o, nil
 }
 
 type AuthorizationResponse struct {
@@ -175,8 +198,9 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, aut
 	ar := &corestate.AuthRequest{}
 	arVer, err := o.storage.Get(req.Context(), authRequestKeyspace, authFlowID, ar)
 	if err != nil {
-		// TODO - maybe a clearer error as to if this is transient, or something
-		// fatal like code not existing.
+		if storage.IsNotFoundErr(err) {
+			return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "auth request not found in storage")
+		}
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to get auth request from storage")
 	}
 
@@ -226,7 +250,7 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 
 	authSess.AuthCode = scode
 
-	if _, err := o.storage.PutWithExpiry(req.Context(), authSessionKeyspace, sessID, 0, authSess, o.now().Add(o.codeValidityTime)); err != nil {
+	if _, err := o.storage.PutWithExpiry(req.Context(), authSessionKeyspace, sessID, 0, authSess, o.sessionExpiry(0, 0)); err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to put authReq to storage")
 	}
 
@@ -246,17 +270,41 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	return nil
 }
 
+// TokenRequest encapsulates the information from the request to the token
+// endpoint. This is passed to the handler, to generate an appropriate response.
 type TokenRequest struct {
-	IsRefresh        bool
+	// ClientID of the client this session is bound to.
+	ClientID string
+	// GrantType indicates the grant that was requested for this invocation of
+	// the token endpoint
+	GrantType GrantType
+	// RefreshRequested is true if the offline_access scope was requested.å
 	RefreshRequested bool
 
+	// Metadata is the application-specific state that was attached to this session.
 	Metadata *any.Any
 }
 
+// TokenResponse is returned by the token endpoint handler, indicating what it
+// should actually return to the user.
 type TokenResponse struct {
+	// AllowRefresh indicates if we should issue a refresh token.
 	AllowRefresh bool
-	IDToken      IDToken
 
+	// IDToken is returned as the id_token for the request to this endpoint. It
+	// is up to the application to store _all_ the desired information in the
+	// token correctly, and to obey the OIDC spec. The handler will make no
+	// changes to this token.
+	IDToken IDToken
+
+	// AccessTokenValidFor indicates how long the returned authorization token
+	// should be valid for.
+	AccessTokenValidFor time.Duration
+	// RefreshTokenValidFor indicates how long the returned refresh token should
+	// be valid for, assuming one is issued.
+	RefreshTokenValidFor time.Duration
+
+	// Metadata is the application-specific state that should be attached to this session.
 	Metadata *any.Any
 }
 
@@ -302,8 +350,9 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	sess := &corestate.Session{}
 	sessVer, err := o.storage.Get(ctx, authSessionKeyspace, ucode.SessionId, sess)
 	if err != nil {
-		// TODO - maybe a clearer error as to if this is transient, or something
-		// fatal like code not existing.
+		if storage.IsNotFoundErr(err) {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+		}
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
 	}
 
@@ -346,8 +395,9 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	// Call the handler with information about the request, and get the response.
 	tr := &TokenRequest{
-		IsRefresh:        false, // TODO
-		RefreshRequested: false, // TODO
+		ClientID:         req.ClientID,
+		GrantType:        req.GrantType,
+		RefreshRequested: strsContains(sess.Scopes, "offline_access"),
 		Metadata:         sess.Metadata,
 	}
 
@@ -367,7 +417,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	sess.Metadata = anym
 
 	// create a new access token
-	useratok, satok, err := newToken(ucode.SessionId, corestate.TokenType_ACCESS_TOKEN, o.now().Add(o.accessTokenValidityTime))
+	useratok, satok, err := newToken(ucode.SessionId, corestate.TokenType_ACCESS_TOKEN, o.now().Add(tresp.AccessTokenValidFor))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 
@@ -380,7 +430,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// TODO - generate refresh token if requested/allowed
 
 	// TODO - refresh
-	if _, err := o.storage.PutWithExpiry(ctx, authSessionKeyspace, ucode.SessionId, sessVer, sess, o.now().Add(o.accessTokenValidityTime)); err != nil {
+	if _, err := o.storage.PutWithExpiry(ctx, authSessionKeyspace, ucode.SessionId, sessVer, sess, o.sessionExpiry(tresp.AccessTokenValidFor, tresp.RefreshTokenValidFor)); err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
 	}
 
@@ -402,7 +452,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	return &tokenResponse{
 		AccessToken: accessTok,
 		TokenType:   "bearer",
-		ExpiresIn:   o.accessTokenValidityTime,
+		ExpiresIn:   tresp.AccessTokenValidFor,
 		ExtraParams: map[string]interface{}{
 			"id_token": string(sidt),
 		},
@@ -432,4 +482,26 @@ func mustGenerateID() string {
 		panic(fmt.Errorf("can't create ID, rand.Read failed: %w", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// sessionExpiry calculates the time the session should expire. This is the greater of the
+// various tokens that were issued.
+func (o *OIDC) sessionExpiry(accessTokenValidity, refreshTokenValidity time.Duration) time.Time {
+	var max time.Duration
+	for _, d := range []time.Duration{o.codeValidityTime, accessTokenValidity, refreshTokenValidity} {
+		if int64(d) > int64(max) {
+			max = d
+		}
+	}
+
+	return o.now().Add(max)
+}
+
+func strsContains(strs []string, s string) bool {
+	for _, str := range strs {
+		if str == s {
+			return true
+		}
+	}
+	return false
 }
