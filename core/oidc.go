@@ -86,7 +86,7 @@ type OIDC struct {
 	now func() time.Time
 }
 
-func NewOIDC(cfg *Config, storage Storage, clientSource ClientSource, signer Signer) (*OIDC, error) {
+func New(cfg *Config, storage Storage, clientSource ClientSource, signer Signer) (*OIDC, error) {
 	o := &OIDC{
 		storage: storage,
 		clients: clientSource,
@@ -336,46 +336,22 @@ func (o *OIDC) Token(w http.ResponseWriter, req *http.Request, handler func(req 
 }
 
 func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *TokenRequest) (*TokenResponse, error)) (*tokenResponse, error) {
-	ucode, err := unmarshalToken(req.Code)
+	var sessID string
+	var sessVer int64
+	var sess *corestate.Session
+	var err error
+
+	switch req.GrantType {
+	case GrantTypeAuthorizationCode:
+		sessID, sessVer, sess, err = o.fetchCodeSession(ctx, req)
+	case GrantTypeRefreshToken:
+		sessID, sessVer, sess, err = o.fetchRefreshSession(ctx, req)
+	default:
+		err = &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
+
+	}
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
-	}
-
-	if ucode.TokenType != corestate.TokenType_AUTH_CODE {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
-	}
-
-	// fetch the corresponding session
-
-	sess := &corestate.Session{}
-	sessVer, err := o.storage.Get(ctx, authSessionKeyspace, ucode.SessionId, sess)
-	if err != nil {
-		if storage.IsNotFoundErr(err) {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
-		}
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
-	}
-
-	ok, err := tokensMatch(ucode, sess.AuthCode)
-	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
-	}
-	if !ok {
-		// if we're passed an invalid code, assume we're under attack and drop the session
-		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
-			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
-		}
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
-	}
-
-	// The session already has a token associated with it. Assume we're under a
-	// replay attack, and drop the session
-	if len(sess.AccessTokens) > 0 {
-		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
-			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete auth code from storage", Cause: err}
-		}
-
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code already redeemed", Cause: err}
+		return nil, err
 	}
 
 	// check to see if we're working with the same client
@@ -417,7 +393,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	sess.Metadata = anym
 
 	// create a new access token
-	useratok, satok, err := newToken(ucode.SessionId, corestate.TokenType_ACCESS_TOKEN, o.now().Add(tresp.AccessTokenValidFor))
+	useratok, satok, err := newToken(sessID, corestate.TokenType_ACCESS_TOKEN, o.now().Add(tresp.AccessTokenValidFor))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 
@@ -430,7 +406,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// TODO - generate refresh token if requested/allowed
 
 	// TODO - refresh
-	if _, err := o.storage.PutWithExpiry(ctx, authSessionKeyspace, ucode.SessionId, sessVer, sess, o.sessionExpiry(tresp.AccessTokenValidFor, tresp.RefreshTokenValidFor)); err != nil {
+	if _, err := o.storage.PutWithExpiry(ctx, authSessionKeyspace, sessID, sessVer, sess, o.sessionExpiry(tresp.AccessTokenValidFor, tresp.RefreshTokenValidFor)); err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
 	}
 
@@ -457,6 +433,117 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 			"id_token": string(sidt),
 		},
 	}, nil
+}
+
+// fetchCodeSession handles loading the session for a code grant.
+func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (string, int64, *corestate.Session, error) {
+	ucode, err := unmarshalToken(treq.Code)
+	if err != nil {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+
+	if ucode.TokenType != corestate.TokenType_AUTH_CODE {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
+	}
+
+	// fetch the corresponding session
+
+	sessID := ucode.SessionId
+	sess := &corestate.Session{}
+	sessVer, err := o.storage.Get(ctx, authSessionKeyspace, ucode.SessionId, sess)
+	if err != nil {
+		if storage.IsNotFoundErr(err) {
+			return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired", Cause: err}
+		}
+		return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
+	}
+
+	codeExp, err := ptypes.Timestamp(sess.AuthCode.ExpiresAt)
+	if err != nil {
+		return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "stored token has invalid timestamp", Cause: err}
+	}
+
+	if sess.AuthCode.Expired || o.now().After(codeExp) {
+		// Drop the session too, assume we're under some kind of replay.
+		// https://tools.ietf.org/html/rfc6819#section-4.4.1.1
+		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
+			return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
+		}
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+	}
+
+	ok, err := tokensMatch(ucode, sess.AuthCode)
+	if err != nil {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+	if !ok {
+		// if we're passed an invalid code, assume we're under attack and drop the session
+		if err := o.storage.Delete(ctx, authSessionKeyspace, ucode.SessionId, sessVer); err != nil {
+			return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
+		}
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+
+	sess.AuthCode.Expired = true
+
+	return sessID, sessVer, sess, nil
+}
+
+// fetchCodeSession handles loading the session for a refresh grant.
+func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (string, int64, *corestate.Session, error) {
+	urefresh, err := unmarshalToken(treq.RefreshToken)
+	if err != nil {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+
+	if urefresh.TokenType != corestate.TokenType_REFRESH_TOKEN {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
+	}
+
+	sessID := urefresh.SessionId
+	sess := &corestate.Session{}
+	sessVer, err := o.storage.Get(ctx, authSessionKeyspace, sessID, sess)
+	if err != nil {
+		if storage.IsNotFoundErr(err) {
+			return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired", Cause: err}
+		}
+		return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
+	}
+
+	srefresh, ok := sess.RefreshTokens[urefresh.TokenId]
+	if !ok {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token not found", Cause: fmt.Errorf("refresh token missing froms session")}
+	}
+
+	refreshExp, err := ptypes.Timestamp(srefresh.ExpiresAt)
+	if err != nil {
+		return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "stored token has invalid timestamp", Cause: err}
+	}
+
+	if srefresh.Expired || o.now().After(refreshExp) {
+		// TODO - do we always want to drop the session here for anti-replay, or ignore it?
+		if err := o.storage.Delete(ctx, authSessionKeyspace, sessID, sessVer); err != nil {
+			return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
+		}
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+	}
+
+	ok, err = tokensMatch(urefresh, srefresh)
+	if err != nil {
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+	if !ok {
+		// if we're passed an invalid code, assume we're under attack and drop the session
+		if err := o.storage.Delete(ctx, authSessionKeyspace, sessID, sessVer); err != nil {
+			return "", 0, nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
+		}
+		return "", 0, nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+	}
+
+	srefresh.Expired = true
+	sess.RefreshTokens[urefresh.TokenId] = srefresh
+
+	return sessID, sessVer, sess, nil
 }
 
 type UserinfoRequest struct {

@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/google/go-cmp/cmp"
 	corestate "github.com/pardot/oidc/proto/deci/corestate/v1beta1"
 	"github.com/pardot/oidc/storage"
 	"github.com/pardot/oidc/storage/memory"
@@ -128,26 +130,6 @@ func TestStartAuthorization(t *testing.T) {
 	}
 }
 
-func matchAuthErrCode(code authErrorCode) func(error) bool {
-	return func(err error) bool {
-		aerr, ok := err.(*authError)
-		if !ok {
-			return false
-		}
-		return aerr.Code == code
-	}
-}
-
-func matchHTTPErrStatus(code int) func(error) bool {
-	return func(err error) bool {
-		herr, ok := err.(*httpError)
-		if !ok {
-			return false
-		}
-		return herr.Code == code
-	}
-}
-
 func TestFinishAuthorization(t *testing.T) {
 	authReqID := mustGenerateID()
 
@@ -247,14 +229,7 @@ func TestFinishAuthorization(t *testing.T) {
 			req := httptest.NewRequest("POST", "/", nil)
 
 			err := oidc.FinishAuthorization(rec, req, authReqID, []string{"granted"}, &empty.Empty{})
-			if err == nil && tc.WantReturnedErrMatch != nil {
-				t.Fatal("want error, got none")
-			}
-			if err != nil {
-				if tc.WantReturnedErrMatch == nil || !tc.WantReturnedErrMatch(err) {
-					t.Fatalf("unexpected error: %v", err)
-				}
-			}
+			checkErrMatcher(t, tc.WantReturnedErrMatch, err)
 
 			if tc.WantHTTPStatus != 0 {
 				if tc.WantHTTPStatus != rec.Code {
@@ -389,8 +364,8 @@ func TestToken(t *testing.T) {
 
 		// replay fails
 		_, err = o.token(context.Background(), treq, newHandler(t))
-		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeInvalidRequest {
-			t.Errorf("want invalid token request error, got: %v", err)
+		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeInvalidGrant {
+			t.Errorf("want invalid token grant error, got: %v", err)
 		}
 	})
 
@@ -464,4 +439,321 @@ func TestToken(t *testing.T) {
 			t.Errorf("want token exp %s, got: %s", (5 * time.Minute).String(), tresp.ExpiresIn.String())
 		}
 	})
+}
+
+func TestFetchCodeSession(t *testing.T) {
+	for _, tc := range []struct {
+		Name string
+		// Setup should return both a session to be persisted, and a token
+		// request to use.
+		Setup func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest)
+		// WantErrMatch signifies that we expect an error. If we don't, it is
+		// expected the retrieved session matches the saved session.
+		WantErrMatch func(error) bool
+		// Cmp compares the sessions. If nil, a simple proto.Equal is performed
+		Cmp func(t *testing.T, stored, returned *corestate.Session)
+	}{
+		{
+			Name: "Valid session, valid request",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corestate.Session{
+					AuthCode: s,
+				}
+
+				tr = &tokenRequest{
+					Code: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			Cmp: func(t *testing.T, _ *corestate.Session, returned *corestate.Session) {
+				if !returned.AuthCode.Expired {
+					t.Error("want: code expired, got unexpired")
+				}
+			},
+		},
+		{
+			Name: "Code that does not correspond to a session",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				badsid := mustGenerateID()
+				u, _, err := newToken(badsid, corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				goodsid := mustGenerateID()
+				_, s, err := newToken(goodsid, corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corestate.Session{
+					AuthCode: s,
+				}
+
+				tr = &tokenRequest{
+					Code: mustMarshal(u),
+				}
+
+				return goodsid, sess, tr
+			},
+			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+		},
+		{
+			Name: "Token with bad data",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// tamper with u by changing the actual token data
+				u.Token = []byte("willnotmatch")
+
+				sess = &corestate.Session{
+					AuthCode: s,
+				}
+
+				tr = &tokenRequest{
+					Code: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidRequest),
+		},
+		{
+			Name: "After code expiry date",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_AUTH_CODE, time.Now().Add(-1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corestate.Session{
+					AuthCode: s,
+				}
+
+				tr = &tokenRequest{
+					Code: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+		},
+		{
+			Name: "Code that has been marked expired",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_AUTH_CODE, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.Expired = true
+
+				sess = &corestate.Session{
+					AuthCode: s,
+				}
+
+				tr = &tokenRequest{
+					Code: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			stor := memory.New()
+
+			oidc, err := New(&Config{}, stor, &stubCS{}, testSigner)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sessID, sess, tr := tc.Setup(t)
+
+			if _, err := stor.Put(context.Background(), authSessionKeyspace, sessID, 0, sess); err != nil {
+				t.Fatalf("error persisting initial session: %v", err)
+			}
+
+			_, _, got, err := oidc.fetchCodeSession(context.Background(), tr)
+			checkErrMatcher(t, tc.WantErrMatch, err)
+
+			if tc.WantErrMatch == nil && tc.Cmp == nil && !proto.Equal(sess, got) {
+				t.Errorf("returned session don't match persisted: %s", cmp.Diff(sess, got))
+			}
+
+			if tc.Cmp != nil {
+				tc.Cmp(t, sess, got)
+			}
+		})
+	}
+}
+
+func TestFetchRefreshSession(t *testing.T) {
+	for _, tc := range []struct {
+		Name string
+		// Setup should return both a session to be persisted, and a token
+		// request to use.
+		Setup func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest)
+		// WantErrMatch signifies that we expect an error. If we don't, it is
+		// expected the retrieved session matches the saved session.
+		WantErrMatch func(error) bool
+		// Cmp compares the sessions. If nil, a simple proto.Equal is performed
+		Cmp func(t *testing.T, stored, returned *corestate.Session)
+	}{
+		{
+			Name: "Valid refresh token for a session",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_REFRESH_TOKEN, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corestate.Session{
+					RefreshTokens: map[string]*corestate.StoredToken{
+						u.TokenId: s,
+					},
+				}
+
+				tr = &tokenRequest{
+					RefreshToken: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			Cmp: func(t *testing.T, _ *corestate.Session, returned *corestate.Session) {
+				var unexpired bool
+				for _, v := range returned.RefreshTokens {
+					if !v.Expired {
+						unexpired = true
+					}
+				}
+				if unexpired {
+					t.Error("want: expired refresh tokens, got unexpired")
+				}
+			},
+		},
+		{
+			Name: "Refresh token that has been redeemed",
+			Setup: func(t *testing.T) (sessID string, sess *corestate.Session, tr *tokenRequest) {
+				sid := mustGenerateID()
+				u, s, err := newToken(sid, corestate.TokenType_REFRESH_TOKEN, time.Now().Add(1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.Expired = true
+
+				sess = &corestate.Session{
+					RefreshTokens: map[string]*corestate.StoredToken{
+						u.TokenId: s,
+					},
+				}
+
+				tr = &tokenRequest{
+					RefreshToken: mustMarshal(u),
+				}
+
+				return sid, sess, tr
+			},
+			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			stor := memory.New()
+
+			oidc, err := New(&Config{}, stor, &stubCS{}, testSigner)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sessID, sess, tr := tc.Setup(t)
+
+			if _, err := stor.Put(context.Background(), authSessionKeyspace, sessID, 0, sess); err != nil {
+				t.Fatalf("error persisting initial session: %v", err)
+			}
+
+			_, _, got, err := oidc.fetchRefreshSession(context.Background(), tr)
+			checkErrMatcher(t, tc.WantErrMatch, err)
+
+			if tc.WantErrMatch == nil && tc.Cmp == nil && !proto.Equal(sess, got) {
+				t.Errorf("returned session don't match persisted: %s", cmp.Diff(sess, got))
+			}
+
+			if tc.Cmp != nil {
+				tc.Cmp(t, sess, got)
+			}
+		})
+	}
+}
+
+func mustMarshal(u *corestate.UserToken) string {
+	t, err := marshalToken(u)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func checkErrMatcher(t *testing.T, matcher func(error) bool, err error) {
+	if err == nil && matcher != nil {
+		t.Fatal("want error, got none")
+	}
+	if err != nil {
+		if matcher == nil || !matcher(err) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// we have an error and it matched
+	}
+}
+
+func matchAuthErrCode(code authErrorCode) func(error) bool {
+	return func(err error) bool {
+		aerr, ok := err.(*authError)
+		if !ok {
+			return false
+		}
+		return aerr.Code == code
+	}
+}
+
+func matchTokenErrCode(code tokenErrorCode) func(error) bool {
+	return func(err error) bool {
+		terr, ok := err.(*tokenError)
+		if !ok {
+			return false
+		}
+		return terr.Code == code
+	}
+}
+
+func matchHTTPErrStatus(code int) func(error) bool {
+	return func(err error) bool {
+		herr, ok := err.(*httpError)
+		if !ok {
+			return false
+		}
+		return herr.Code == code
+	}
+}
+
+func matchAnyErr() func(error) bool {
+	return func(err error) bool {
+		if err != nil {
+			return true
+		}
+		return false
+	}
 }
