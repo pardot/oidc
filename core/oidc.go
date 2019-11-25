@@ -367,12 +367,12 @@ type TokenResponse struct {
 	// changes to this token.
 	IDToken IDToken
 
-	// AccessTokenValidFor indicates how long the returned authorization token
+	// AccessTokenValidUntil indicates how long the returned authorization token
 	// should be valid for.
-	AccessTokenValidFor time.Duration
-	// RefreshTokenValidFor indicates how long the returned refresh token should
+	AccessTokenValidUntil time.Time
+	// RefreshTokenValidUntil indicates how long the returned refresh token should
 	// be valid for, assuming one is issued.
-	RefreshTokenValidFor time.Duration
+	RefreshTokenValidUntil time.Time
 }
 
 // Token is used to handle the access token endpoint for code flow requests.
@@ -461,7 +461,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	// create a new access token
-	useratok, satok, err := newToken(sess.Id, tsAdd(o.tsnow(), tresp.AccessTokenValidFor))
+	useratok, satok, err := newToken(sess.Id, mustTs(tresp.AccessTokenValidUntil))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 	}
@@ -478,7 +478,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// do this after, as it'll set a longer expiration on the session
 	var refreshTok string
 	if tresp.AllowRefresh {
-		urefreshtok, srefreshtok, err := newToken(sess.Id, tsAdd(o.tsnow(), tresp.RefreshTokenValidFor))
+		urefreshtok, srefreshtok, err := newToken(sess.Id, mustTs(tresp.RefreshTokenValidUntil))
 		if err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 		}
@@ -513,7 +513,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		AccessToken:  accessTok,
 		RefreshToken: refreshTok,
 		TokenType:    "bearer",
-		ExpiresIn:    tresp.AccessTokenValidFor,
+		ExpiresIn:    tresp.AccessTokenValidUntil.Sub(o.now()),
 		ExtraParams: map[string]interface{}{
 			"id_token": string(sidt),
 		},

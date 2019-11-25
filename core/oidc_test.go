@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http/httptest"
 	"net/url"
 	"testing"
@@ -329,6 +330,7 @@ func TestToken(t *testing.T) {
 				},
 			},
 
+			now:   time.Now,
 			tsnow: ptypes.TimestampNow,
 		}
 	}
@@ -364,7 +366,7 @@ func TestToken(t *testing.T) {
 	newHandler := func(t *testing.T) func(req *TokenRequest) (*TokenResponse, error) {
 		return func(req *TokenRequest) (*TokenResponse, error) {
 			return &TokenResponse{
-				AccessTokenValidFor: 1 * time.Minute,
+				AccessTokenValidUntil: time.Now().Add(1 * time.Minute),
 			}, nil
 		}
 	}
@@ -468,7 +470,7 @@ func TestToken(t *testing.T) {
 		ih := newHandler(t)
 		h := func(req *TokenRequest) (*TokenResponse, error) {
 			r, err := ih(req)
-			r.AccessTokenValidFor = 5 * time.Minute
+			r.AccessTokenValidUntil = time.Now().Add(5 * time.Minute)
 			return r, err
 		}
 
@@ -481,8 +483,10 @@ func TestToken(t *testing.T) {
 			t.Error("token request should have returned an access token, but got none")
 		}
 
-		if tresp.ExpiresIn != 5*time.Minute {
-			t.Errorf("want token exp %s, got: %s", (5 * time.Minute).String(), tresp.ExpiresIn.String())
+		// compare whole seconds, we calculate this based on a expiresAt - now
+		// delta so the function run time is factored in.
+		if math.Round(tresp.ExpiresIn.Seconds()) != math.Round((5 * time.Minute).Seconds()) {
+			t.Errorf("want token exp %f, got: %f", math.Round((5 * time.Minute).Seconds()), math.Round(tresp.ExpiresIn.Seconds()))
 		}
 	})
 
@@ -493,8 +497,8 @@ func TestToken(t *testing.T) {
 		ih := newHandler(t)
 		h := func(req *TokenRequest) (*TokenResponse, error) {
 			r, err := ih(req)
-			r.AccessTokenValidFor = 5 * time.Minute
-			r.RefreshTokenValidFor = 10 * time.Minute
+			r.AccessTokenValidUntil = time.Now().Add(5 * time.Minute)
+			r.RefreshTokenValidUntil = time.Now().Add(10 * time.Minute)
 			r.AllowRefresh = true
 			return r, err
 		}

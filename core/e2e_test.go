@@ -80,6 +80,7 @@ func TestE2E(t *testing.T) {
 				smgr:   newStubSMGR(),
 				signer: testSigner,
 
+				now:   time.Now,
 				tsnow: ptypes.TimestampNow,
 			}
 
