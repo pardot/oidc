@@ -7,10 +7,8 @@ import "google/protobuf/any.proto";
 package oidc.core.v1beta1;
 option go_package = "core";
 
-// AuthRequest represents that state for an inbound request to auth. It tracks
-// this until the Session is started, at which time it is replaced.
-//
-// It is keyed by a unique identifier for this flow
+// AuthRequest represents the information that the caller requested
+// authorization with.
 message AuthRequest {
   string redirect_uri = 1 [ json_name = "redirect_uri" ];
   string state = 2 [ json_name = "state" ];
@@ -22,6 +20,14 @@ message AuthRequest {
     TOKEN = 2;
   }
   ResponseType response_type = 5 [ json_name = "response_type" ];
+}
+
+// Authorization represents the information that the authentication process
+// authorized the user for.
+message Authorization {
+  repeated string scopes = 1 [ json_name = "scopes" ];
+  string acr = 2 [ json_name = "acr" ];
+  string amr = 3 [ json_name = "amr" ];
 }
 
 // Session represents an authenticated user from the time they are issued a
@@ -48,30 +54,33 @@ message Session {
   // request stores information about the original request we received.
   AuthRequest request = 5 [ json_name = "request" ];
 
+  // tracks the details this session was actually authorized for
+  Authorization authorization = 6 [ json_name = "authorization" ];
+
   // the client ID this session is bound to.
-  string client_id = 6 [ json_name = "client_id" ];
+  string client_id = 7 [ json_name = "client_id" ];
 
   // the scopes that have been granted for this session
-  repeated string scopes = 7 [ json_name = "scopes" ];
+  repeated string scopes = 8 [ json_name = "scopes" ];
 
   // The authorization code that was issued for the code flow.
-  StoredToken auth_code = 8 [ json_name = "auth_code" ];
+  StoredToken auth_code = 9 [ json_name = "auth_code" ];
   // if the auth code has been previously redeemed. If we get a subsequent
   // redemption, we should drop the whole session
   //
   // https://tools.ietf.org/html/rfc6819#section-4.4.1.1
-  bool auth_code_redeemed = 9 [ json_name = "auth_code_redeemed" ];
+  bool auth_code_redeemed = 10 [ json_name = "auth_code_redeemed" ];
 
   // The current access token, if one has been issued. It's expiration time
   // should always be checked.
-  StoredToken access_token = 10 [ json_name = "access_token" ];
+  StoredToken access_token = 11 [ json_name = "access_token" ];
 
   // The currently valid refresh token for this session. I
-  StoredToken refresh_token = 11 [ json_name = "refresh_token" ];
+  StoredToken refresh_token = 12 [ json_name = "refresh_token" ];
 
   // The time the whole session should be expired at. It should be garbage
   // collected at this time.
-  google.protobuf.Timestamp expires_at = 12 [ json_name = "expires_at" ];
+  google.protobuf.Timestamp expires_at = 13 [ json_name = "expires_at" ];
 
   // reserving the first two fields for future expansion. If we need to change
   // the persisted schema, we may be able to use these to peek at the message

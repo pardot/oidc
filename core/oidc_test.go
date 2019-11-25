@@ -41,7 +41,7 @@ func TestStartAuthorization(t *testing.T) {
 		Query                url.Values
 		WantReturnedErrMatch func(error) bool
 		WantHTTPStatus       int
-		CheckResponse        func(*testing.T, SessionManager, *AuthorizationResponse)
+		CheckResponse        func(*testing.T, SessionManager, *AuthorizationRequest)
 	}{
 		{
 			Name: "Bad client ID should return error directly",
@@ -70,8 +70,8 @@ func TestStartAuthorization(t *testing.T) {
 				"response_type": []string{"code"},
 				"redirect_uri":  []string{redirectURI},
 			},
-			CheckResponse: func(t *testing.T, smgr SessionManager, resp *AuthorizationResponse) {
-				sess, err := getSession(context.Background(), smgr, resp.SessionID)
+			CheckResponse: func(t *testing.T, smgr SessionManager, areq *AuthorizationRequest) {
+				sess, err := getSession(context.Background(), smgr, areq.SessionID)
 				if err != nil {
 					t.Errorf("should be able to get the session, got error: %v", err)
 				}
@@ -232,7 +232,7 @@ func TestFinishAuthorization(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/", nil)
 
-			err := oidc.FinishAuthorization(rec, req, sessID, []string{"granted"})
+			err := oidc.FinishAuthorization(rec, req, sessID, &Authorization{Scopes: []string{"granted"}})
 			checkErrMatcher(t, tc.WantReturnedErrMatch, err)
 
 			if tc.WantHTTPStatus != 0 {
@@ -745,7 +745,7 @@ func TestUserinfo(t *testing.T) {
 			},
 		},
 		{
-			Name: "Token for non-existant session",
+			Name: "Token for non-existent session",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
 				sid := "session-id"
 				u, _, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))

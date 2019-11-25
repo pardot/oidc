@@ -23,6 +23,9 @@ type authRequest struct {
 	State        string
 	Scopes       []string
 	ResponseType responseType
+
+	// Raw is the full, unprocessed set of values passed to this request.
+	Raw url.Values
 }
 
 // parseAuthRequest can be used to process an oauth2 authentication request,
@@ -77,6 +80,7 @@ func parseAuthRequest(req *http.Request) (authReq *authRequest, err error) {
 		State:        state,
 		Scopes:       strings.Split(strings.TrimSpace(scope), " "),
 		ResponseType: rt,
+		Raw:          req.Form,
 	}, nil
 }
 

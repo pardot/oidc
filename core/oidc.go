@@ -126,8 +126,17 @@ func New(cfg *Config, smgr SessionManager, clientSource ClientSource, signer Sig
 	return o, nil
 }
 
-type AuthorizationResponse struct {
+// AuthorizationRequest details the information the user starting the
+// authorization flow requested
+type AuthorizationRequest struct {
+	// SessionID that was generated for this session. This should be tracked
+	// throughout the authentication process
 	SessionID string
+	// ACRValues are the authentication context class reference values the
+	// caller requested
+	//
+	// https://openid.net/specs/openid-connect-core-1_0.html#acrSemantics
+	ACRValues []string
 }
 
 // StartAuthorization can be used to handle a request to the auth endpoint. It
@@ -140,7 +149,7 @@ type AuthorizationResponse struct {
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth
 // https://openid.net/specs/openid-connect-core-1_0.html#ImplicitFlowAuth
-func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*AuthorizationResponse, error) {
+func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*AuthorizationRequest, error) {
 	authreq, err := parseAuthRequest(req)
 	if err != nil {
 		_ = writeError(w, req, err)
@@ -177,7 +186,7 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 		RedirectUri: redir.String(),
 		State:       authreq.State,
 		Scopes:      authreq.Scopes,
-		Nonce:       req.FormValue("nonce"),
+		Nonce:       authreq.Raw.Get("nonce"),
 	}
 
 	switch authreq.ResponseType {
@@ -199,9 +208,22 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 		return nil, writeAuthError(w, req, redir, authErrorCodeErrServerError, authreq.State, "failed to persist session", err)
 	}
 
-	return &AuthorizationResponse{
+	return &AuthorizationRequest{
 		SessionID: sess.Id,
+		ACRValues: strings.Split(authreq.Raw.Get("acr_values"), " "),
 	}, nil
+}
+
+// Authorization tracks the information a session was actually authorized for
+type Authorization struct {
+	// Scopes are the list of scopes this session was granted
+	Scopes []string
+	// ACR is the Authentication Context Class Reference the session was
+	// authenticated with
+	ACR string
+	// AMR is the Authentication Methods Reference the session was authenticated
+	// with
+	AMR string
 }
 
 // FinishAuthorization should be called once the consumer has validated the
@@ -217,7 +239,7 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 // information needed to serve those endpoints.
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, sessionID string, grantedScopes []string) error {
+func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, sessionID string, auth *Authorization) error {
 	sess, err := getSession(req.Context(), o.smgr, sessionID)
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to get session")
@@ -226,7 +248,11 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 		return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "session not found in storage")
 	}
 
-	sess.Scopes = grantedScopes
+	sess.Authorization = &corev1beta1.Authorization{
+		Scopes: auth.Scopes,
+		Acr:    auth.ACR,
+		Amr:    auth.AMR,
+	}
 
 	switch sess.Request.ResponseType {
 	case corev1beta1.AuthRequest_CODE:
@@ -281,6 +307,8 @@ type TokenRequest struct {
 	SessionID string
 	// ClientID of the client this session is bound to.
 	ClientID string
+	// Authorization information this session was authorized with
+	Authorization Authorization
 	// GrantType indicates the grant that was requested for this invocation of
 	// the token endpoint
 	GrantType GrantType
@@ -368,9 +396,16 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	// Call the handler with information about the request, and get the response.
+	authz := Authorization{}
+	if sess.Authorization != nil {
+		authz.Scopes = sess.Authorization.Scopes
+		authz.ACR = sess.Authorization.Acr
+		authz.AMR = sess.Authorization.Amr
+	}
 	tr := &TokenRequest{
 		SessionID:        sess.Id,
 		ClientID:         req.ClientID,
+		Authorization:    authz,
 		GrantType:        req.GrantType,
 		RefreshRequested: strsContains(sess.Scopes, "offline_access"),
 	}

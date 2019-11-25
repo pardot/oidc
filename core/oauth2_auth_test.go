@@ -48,6 +48,13 @@ func TestParseAuthRequest(t *testing.T) {
 				State:        "state",
 				Scopes:       []string{"openid", "groups"},
 				ResponseType: responseTypeCode,
+				Raw: url.Values{
+					"client_id":     {"client"},
+					"redirect_uri":  {"https://redirect"},
+					"response_type": {"code"},
+					"scope":         {"openid groups"},
+					"state":         {"state"},
+				},
 			},
 		},
 	} {

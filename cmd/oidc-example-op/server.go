@@ -83,7 +83,7 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 	s.storage.sessions[sessID.Value].Meta = meta
 
 	// finalize it. this will redirect the user to the appropriate place
-	if err := s.oidc.FinishAuthorization(w, req, sessID.Value, []string{}); err != nil {
+	if err := s.oidc.FinishAuthorization(w, req, sessID.Value, &core.Authorization{}); err != nil {
 		log.Printf("error finishing authorization: %v", err)
 	}
 }
