@@ -284,7 +284,7 @@ func TestToken(t *testing.T) {
 	newCodeSess := func(t *testing.T, smgr SessionManager) (usertok string) {
 		t.Helper()
 
-		utok, stok, err := newToken(mustGenerateID(), corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+		utok, stok, err := newToken(mustGenerateID(), tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -519,7 +519,7 @@ func TestFetchCodeSession(t *testing.T) {
 			Name: "Valid session, valid request",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -540,13 +540,13 @@ func TestFetchCodeSession(t *testing.T) {
 			Name: "Code that does not correspond to a session",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
 				badsid := mustGenerateID()
-				u, _, err := newToken(badsid, corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, _, err := newToken(badsid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
 				goodsid := mustGenerateID()
-				_, s, err := newToken(goodsid, corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				_, s, err := newToken(goodsid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -568,7 +568,7 @@ func TestFetchCodeSession(t *testing.T) {
 			Name: "Token with bad data",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -593,7 +593,7 @@ func TestFetchCodeSession(t *testing.T) {
 			Name: "Code that has expiration time in the past",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, corev1beta1.TokenType_AUTH_CODE, tsAdd(ptypes.TimestampNow(), -1*time.Minute))
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), -1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -657,7 +657,7 @@ func TestFetchRefreshSession(t *testing.T) {
 			Name: "Valid refresh token for a session",
 			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, corev1beta1.TokenType_REFRESH_TOKEN, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}

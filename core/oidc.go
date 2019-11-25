@@ -238,7 +238,7 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, session *corev1beta1.Session) error {
 	codeExp := tsAdd(o.tsnow(), o.codeValidityTime)
 
-	ucode, scode, err := newToken(session.Id, corev1beta1.TokenType_AUTH_CODE, codeExp)
+	ucode, scode, err := newToken(session.Id, codeExp)
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to generate code token")
 	}
@@ -379,7 +379,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	// create a new access token
-	useratok, satok, err := newToken(sess.Id, corev1beta1.TokenType_ACCESS_TOKEN, tsAdd(o.tsnow(), tresp.AccessTokenValidFor))
+	useratok, satok, err := newToken(sess.Id, tsAdd(o.tsnow(), tresp.AccessTokenValidFor))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 	}
@@ -395,7 +395,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// do this after, as it'll set a longer expiration on the session
 	var refreshTok string
 	if tresp.AllowRefresh {
-		urefreshtok, srefreshtok, err := newToken(sess.Id, corev1beta1.TokenType_REFRESH_TOKEN, tsAdd(o.tsnow(), tresp.RefreshTokenValidFor))
+		urefreshtok, srefreshtok, err := newToken(sess.Id, tsAdd(o.tsnow(), tresp.RefreshTokenValidFor))
 		if err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 		}
@@ -443,10 +443,6 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 
-	if ucode.TokenType != corev1beta1.TokenType_AUTH_CODE {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
-	}
-
 	sess, err := getSession(ctx, o.smgr, ucode.SessionId)
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
@@ -486,10 +482,6 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*co
 	urefresh, err := unmarshalToken(treq.RefreshToken)
 	if err != nil {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
-	}
-
-	if urefresh.TokenType != corev1beta1.TokenType_REFRESH_TOKEN {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: fmt.Errorf("passed token was the wrong type")}
 	}
 
 	sess, err := getSession(ctx, o.smgr, urefresh.SessionId)

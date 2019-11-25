@@ -12,34 +12,28 @@ import (
 )
 
 const (
-	tokenIDLen = 16
-	tokenLen   = 48
+	tokenLen = 48
 )
 
 // newToken generates a fresh token, from random data. The user and stored
 // states are returned.
-func newToken(sessID string, tokType corev1beta1.TokenType, expires *timestamp.Timestamp) (*corev1beta1.UserToken, *corev1beta1.StoredToken, error) {
-	b := make([]byte, tokenIDLen+tokenLen)
+func newToken(sessID string, expires *timestamp.Timestamp) (*corev1beta1.UserToken, *corev1beta1.StoredToken, error) {
+	b := make([]byte, tokenLen)
 	if _, err := rand.Read(b); err != nil {
 		return nil, nil, fmt.Errorf("error reading random data: %w", err)
 	}
-	tokenID := base64.RawStdEncoding.EncodeToString(b[0 : tokenIDLen-1])
-	rawToken := b[tokenIDLen:]
 
-	bc, err := bcrypt.GenerateFromPassword(b[tokenIDLen:], bcrypt.DefaultCost)
+	bc, err := bcrypt.GenerateFromPassword(b, bcrypt.DefaultCost)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	ut := &corev1beta1.UserToken{
-		TokenType: tokType,
-		TokenId:   tokenID,
-		Token:     rawToken,
+		Token:     b,
 		SessionId: sessID,
 	}
 
 	st := &corev1beta1.StoredToken{
-		TokenType: tokType,
 		Bcrypted:  bc,
 		ExpiresAt: expires,
 	}

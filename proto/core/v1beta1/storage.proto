@@ -84,32 +84,20 @@ message Session {
   reserved 1, 2;
 }
 
-enum TokenType {
-  UNKNOWN = 0;
-  AUTH_CODE = 1;
-  ACCESS_TOKEN = 2;
-  REFRESH_TOKEN = 3;
-}
-
 // StoredToken represents the session-persisted state of a token
 // we issued to a user
 message StoredToken {
-  TokenType token_type = 4;
   // bcrypted version of the token that was issued to the user
-  bytes bcrypted = 5;
+  bytes bcrypted = 1;
   // when this token expires
-  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp expires_at = 2;
 }
 
 // UserToken is the value we issue directly to users. The message is serialized,
 // then base64 encoded to make up the issued version.
 message UserToken {
-  // The type of token this actually is
-  TokenType token_type = 5;
   // the ID of the session this token corresponds to
-  string session_id = 6;
-  // identifier of this token, to look it up
-  string token_id = 3;
+  string session_id = 1;
   // the token itself, to be compared to the bcrypt version on the backend
-  bytes token = 4;
+  bytes token = 2;
 }
