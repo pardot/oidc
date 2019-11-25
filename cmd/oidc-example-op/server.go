@@ -80,11 +80,6 @@ func (s *server) authorization(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse form: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	sessID, err := req.Cookie(sessIDCookie)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get auth id cookie: %v", err), http.StatusInternalServerError)
@@ -92,9 +87,9 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 	}
 
 	auth := &core.Authorization{
-		Scopes: strings.Split(req.Form.Get("scopes"), " "),
-		ACR:    req.Form.Get("acr"),
-		AMR:    req.Form.Get("amr"),
+		Scopes: strings.Split(req.FormValue("scopes"), " "),
+		ACR:    req.FormValue("acr"),
+		AMR:    req.FormValue("amr"),
 	}
 
 	// We have the session ID. This is stable for the session, so we can track
@@ -102,10 +97,10 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 	// requests, so we can always pull things out
 
 	meta := &metadata{
-		Subject:  req.Form.Get("subject"),
+		Subject:  req.FormValue("subject"),
 		Userinfo: map[string]interface{}{},
 	}
-	if err := json.Unmarshal([]byte(req.Form.Get("userinfo")), &meta.Userinfo); err != nil {
+	if err := json.Unmarshal([]byte(req.FormValue("userinfo")), &meta.Userinfo); err != nil {
 		http.Error(w, fmt.Sprintf("failed to unmarshal userinfo: %v", err), http.StatusInternalServerError)
 		return
 	}

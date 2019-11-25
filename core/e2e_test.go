@@ -33,10 +33,6 @@ func TestE2E(t *testing.T) {
 			state := randomStateValue()
 
 			cliSvr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if err := req.ParseForm(); err != nil {
-					t.Fatalf("failed to parse form: %v", err)
-				}
-
 				if errMsg := req.FormValue("error"); errMsg != "" {
 					t.Errorf("error returned to callback %s: %s", errMsg, req.FormValue("error_description"))
 

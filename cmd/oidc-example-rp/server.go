@@ -49,11 +49,6 @@ func (s *server) home(w http.ResponseWriter, req *http.Request) {
 
 // start the actual flow. this builds up the request and sends the user on
 func (s *server) start(w http.ResponseWriter, req *http.Request) {
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse form: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	// track a random state var to prevent CSRF
 	state := mustRandStr(16)
 	sc := &http.Cookie{
@@ -81,11 +76,6 @@ const callbackPage = `<!DOCTYPE html>
 var callbackTmpl = template.Must(template.New("loginPage").Parse(callbackPage))
 
 func (s *server) callback(w http.ResponseWriter, req *http.Request) {
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse form: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	statec, err := req.Cookie(stateCookie)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get state cookie: %v", err), http.StatusInternalServerError)

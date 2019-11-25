@@ -32,10 +32,6 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "method must be POST"}
 	}
 
-	if err := req.ParseForm(); err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "failed to parse request", Cause: err}
-	}
-
 	tr := &tokenRequest{
 		RedirectURI:  req.FormValue("redirect_uri"),
 		Code:         req.FormValue("code"),

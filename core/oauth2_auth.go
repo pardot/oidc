@@ -40,10 +40,6 @@ func parseAuthRequest(req *http.Request) (authReq *authRequest, err error) {
 		return nil, &httpError{Code: http.StatusBadRequest, Message: "method must be POST or GET"}
 	}
 
-	if err := req.ParseForm(); err != nil {
-		return nil, &httpError{Code: http.StatusBadRequest, Message: "failed to parse request", Cause: err}
-	}
-
 	rts := req.FormValue("response_type")
 	cid := req.FormValue("client_id")
 	ruri := req.FormValue("redirect_uri")
