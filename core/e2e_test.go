@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pardot/oidc/storage/memory"
+	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/oauth2"
 )
 
@@ -77,10 +77,10 @@ func TestE2E(t *testing.T) {
 				authValidityTime: 1 * time.Minute,
 				codeValidityTime: 1 * time.Minute,
 
-				storage: memory.New(),
-				signer:  testSigner,
+				smgr:   newStubSMGR(),
+				signer: testSigner,
 
-				now: time.Now,
+				tsnow: ptypes.TimestampNow,
 			}
 
 			mux := http.NewServeMux()
@@ -94,7 +94,7 @@ func TestE2E(t *testing.T) {
 				}
 
 				// just finish it straight away
-				if err := oidc.FinishAuthorization(w, req, ar.AuthID, []string{}, nil); err != nil {
+				if err := oidc.FinishAuthorization(w, req, ar.SessionID, []string{}); err != nil {
 					t.Fatalf("error finishing authorization: %v", err)
 				}
 			})

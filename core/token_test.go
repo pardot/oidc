@@ -4,13 +4,14 @@ import (
 	"testing"
 	"time"
 
-	corestate "github.com/pardot/oidc/proto/deci/corestate/v1beta1"
+	"github.com/golang/protobuf/ptypes"
+	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
 func TestTokens(t *testing.T) {
 	sessID := mustGenerateID()
 
-	utok, stok, err := newToken(sessID, corestate.TokenType_ACCESS_TOKEN, time.Now().Add(1*time.Minute))
+	utok, stok, err := newToken(sessID, corev1beta1.TokenType_ACCESS_TOKEN, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func TestTokens(t *testing.T) {
 		t.Error("want: tokens to be equal, got not equal")
 	}
 
-	utok2, _, err := newToken(sessID, corestate.TokenType_ACCESS_TOKEN, time.Now().Add(1*time.Minute))
+	utok2, _, err := newToken(sessID, corev1beta1.TokenType_ACCESS_TOKEN, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

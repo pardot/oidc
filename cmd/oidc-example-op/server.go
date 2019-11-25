@@ -8,19 +8,18 @@ import (
 
 	"net/http"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/pardot/oidc/core"
-	examplestate "github.com/pardot/oidc/proto/deci/example/v1beta1"
 )
 
 const (
-	authIDCookie = "authID"
+	sessIDCookie = "sessID"
 )
 
 type server struct {
 	oidc     *core.OIDC
 	mux      *http.ServeMux
 	muxSetup sync.Once
+	storage  *storage
 }
 
 const loginPage = `<!DOCTYPE html>
@@ -51,8 +50,8 @@ func (s *server) authorization(w http.ResponseWriter, req *http.Request) {
 	// kept secret from the user, and the user should not be able to pass one
 	// directly.
 	aidc := &http.Cookie{
-		Name:   authIDCookie,
-		Value:  ar.AuthID,
+		Name:   sessIDCookie,
+		Value:  ar.SessionID,
 		MaxAge: 60,
 	}
 	http.SetCookie(w, aidc)
@@ -71,40 +70,35 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	authID, err := req.Cookie(authIDCookie)
+	sessID, err := req.Cookie(sessIDCookie)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get auth id cookie: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// This is what we track, and will get back in the token response
-	meta := &examplestate.User{}
+	// We have the session ID. This is stable for the session, so we can track
+	// whatever we want along with it. We always get the session ID in later
+	// requests, so we can always pull things out
+	meta := &metadata{}
+	s.storage.sessions[sessID.Value].Meta = meta
 
 	// finalize it. this will redirect the user to the appropriate place
-	if err := s.oidc.FinishAuthorization(w, req, authID.Value, []string{}, meta); err != nil {
+	if err := s.oidc.FinishAuthorization(w, req, sessID.Value, []string{}); err != nil {
 		log.Printf("error finishing authorization: %v", err)
 	}
 }
 
 func (s *server) token(w http.ResponseWriter, req *http.Request) {
 	err := s.oidc.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
-		meta := &examplestate.User{}
-
-		if err := ptypes.UnmarshalAny(tr.Metadata, meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
-		}
-
-		metaany, err := ptypes.MarshalAny(meta)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marhal metadata: %w", err)
-		}
+		// This is how we could update our metadata
+		meta := s.storage.sessions[tr.SessionID].Meta
+		s.storage.sessions[tr.SessionID].Meta = meta
 
 		idt := core.IDToken{}
 
 		return &core.TokenResponse{
 			AllowRefresh: false,
 			IDToken:      idt,
-			Metadata:     metaany,
 		}, nil
 	})
 	if err != nil {

@@ -1,9 +1,12 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 
+	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 	"github.com/pardot/oidc/signer"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -36,6 +39,39 @@ func (s *stubCS) ValidateClientSecret(clientID, clientSecret string) (ok bool, e
 func (s *stubCS) ValidateClientRedirectURI(clientID, redirectURI string) (ok bool, err error) {
 	cl, ok := s.validClients[clientID]
 	return ok && redirectURI == cl.RedirectURI, nil
+}
+
+type stubSMGR struct {
+	// sessions maps session objects by their ID
+	sessions map[string]*corev1beta1.Session
+}
+
+func newStubSMGR() *stubSMGR {
+	return &stubSMGR{
+		sessions: map[string]*corev1beta1.Session{},
+	}
+}
+
+func (s *stubSMGR) GetSession(_ context.Context, sessionID string) (Session, error) {
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, nil
+	}
+	return sess, nil
+}
+
+func (s *stubSMGR) PutSession(_ context.Context, sess Session) error {
+	if sess.GetId() == "" {
+		return fmt.Errorf("session has no ID")
+	}
+	csess := sess.(*corev1beta1.Session)
+	s.sessions[sess.GetId()] = csess
+	return nil
+}
+
+func (s *stubSMGR) DeleteSession(ctx context.Context, sessionID string) error {
+	delete(s.sessions, sessionID)
+	return nil
 }
 
 var testSigner = func() Signer {

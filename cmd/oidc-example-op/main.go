@@ -6,21 +6,22 @@ import (
 	"time"
 
 	"github.com/pardot/oidc/core"
-	"github.com/pardot/oidc/storage/memory"
 )
 
 func main() {
-	oidc, err := core.NewOIDC(&core.Config{
-		AuthValidityTime:        5 * time.Minute,
-		CodeValidityTime:        5 * time.Minute,
-		AccessTokenValidityTime: 5 * time.Minute,
-	}, memory.New(), &staticClients{}, nil)
+	smgr := newStubSMGR()
+
+	oidc, err := core.New(&core.Config{
+		AuthValidityTime: 5 * time.Minute,
+		CodeValidityTime: 5 * time.Minute,
+	}, smgr, &staticClients{}, nil)
 	if err != nil {
 		log.Fatalf("Failed to create OIDC server instance: %v", err)
 	}
 
 	svr := &server{
-		oidc: oidc,
+		oidc:    oidc,
+		storage: smgr,
 	}
 
 	log.Printf("Listening on: %s", "127.0.0.1:8085")
