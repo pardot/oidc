@@ -9,7 +9,6 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/google/go-cmp/cmp"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
@@ -294,15 +293,9 @@ func TestToken(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		meta, err := ptypes.MarshalAny(&empty.Empty{})
-		if err != nil {
-			t.Fatal(err)
-		}
-
 		sess := corev1beta1.Session{
 			Id:        utok.SessionId,
 			AuthCode:  stok,
-			Metadata:  meta,
 			ClientId:  clientID,
 			ExpiresAt: tsAdd(ptypes.TimestampNow(), 1*time.Minute),
 		}

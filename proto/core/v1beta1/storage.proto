@@ -12,16 +12,16 @@ option go_package = "core";
 //
 // It is keyed by a unique identifier for this flow
 message AuthRequest {
-  string redirect_uri = 2;
-  string state = 3;
-  repeated string scopes = 4;
-  string nonce = 5;
+  string redirect_uri = 1 [ json_name = "redirect_uri" ];
+  string state = 2 [ json_name = "state" ];
+  repeated string scopes = 3 [ json_name = "scopes" ];
+  string nonce = 4 [ json_name = "nonce" ];
   enum ResponseType {
     UNKNOWN = 0;
     CODE = 1;
     TOKEN = 2;
   }
-  ResponseType response_type = 6;
+  ResponseType response_type = 5 [ json_name = "response_type" ];
 }
 
 // Session represents an authenticated user from the time they are issued a
@@ -29,7 +29,7 @@ message AuthRequest {
 message Session {
   // The unique identifier for this session.
 
-  string id = 12;
+  string id = 3 [ json_name = "id" ];
   enum Stage {
     // A request to authenticate someone has been received, but upstream has not
     // authenticated the user.
@@ -43,40 +43,35 @@ message Session {
     REFRESHABLE = 3;
   }
   // stage represents where in the overall lifecycle this session is.
-  Stage stage = 7;
+  Stage stage = 4 [ json_name = "stage" ];
 
   // request stores information about the original request we received.
-  AuthRequest request = 8;
+  AuthRequest request = 5 [ json_name = "request" ];
 
   // the client ID this session is bound to.
-  string client_id = 13;
+  string client_id = 6 [ json_name = "client_id" ];
 
   // the scopes that have been granted for this session
-  repeated string scopes = 14;
-
-  // metadata is implementation-specific state for this "user". it is threaded
-  // through all of the steps in the process. This should contain the
-  // information required to serve requests to this service.
-  google.protobuf.Any metadata = 3;
+  repeated string scopes = 7 [ json_name = "scopes" ];
 
   // The authorization code that was issued for the code flow.
-  StoredToken auth_code = 4;
+  StoredToken auth_code = 8 [ json_name = "auth_code" ];
   // if the auth code has been previously redeemed. If we get a subsequent
   // redemption, we should drop the whole session
   //
   // https://tools.ietf.org/html/rfc6819#section-4.4.1.1
-  bool auth_code_redeemed = 9;
+  bool auth_code_redeemed = 9 [ json_name = "auth_code_redeemed" ];
 
   // The current access token, if one has been issued. It's expiration time
   // should always be checked.
-  StoredToken access_token = 5;
+  StoredToken access_token = 10 [ json_name = "access_token" ];
 
   // The currently valid refresh token for this session. I
-  StoredToken refresh_token = 6;
+  StoredToken refresh_token = 11 [ json_name = "refresh_token" ];
 
   // The time the whole session should be expired at. It should be garbage
   // collected at this time.
-  google.protobuf.Timestamp expires_at = 11;
+  google.protobuf.Timestamp expires_at = 12 [ json_name = "expires_at" ];
 
   // reserving the first two fields for future expansion. If we need to change
   // the persisted schema, we may be able to use these to peek at the message
@@ -88,16 +83,16 @@ message Session {
 // we issued to a user
 message StoredToken {
   // bcrypted version of the token that was issued to the user
-  bytes bcrypted = 1;
+  bytes bcrypted = 1 [ json_name = "bcrypted" ];
   // when this token expires
-  google.protobuf.Timestamp expires_at = 2;
+  google.protobuf.Timestamp expires_at = 2 [ json_name = "expires_at" ];
 }
 
 // UserToken is the value we issue directly to users. The message is serialized,
 // then base64 encoded to make up the issued version.
 message UserToken {
   // the ID of the session this token corresponds to
-  string session_id = 1;
+  string session_id = 1 [ json_name = "session_id" ];
   // the token itself, to be compared to the bcrypt version on the backend
-  bytes token = 2;
+  bytes token = 2 [ json_name = "token" ];
 }

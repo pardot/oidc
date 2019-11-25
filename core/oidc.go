@@ -249,6 +249,7 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	}
 
 	session.AuthCode = scode
+	session.Stage = corev1beta1.Session_CODE
 	// switch expiry to the max lifetime of the code
 	session.ExpiresAt = codeExp
 
@@ -385,6 +386,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 	sess.ExpiresAt = satok.ExpiresAt
 	sess.AccessToken = satok
+	sess.Stage = corev1beta1.Session_ACCESS_TOKEN_ISSUED
 
 	accessTok, err := marshalToken(useratok)
 	if err != nil {
@@ -401,6 +403,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		}
 		sess.ExpiresAt = srefreshtok.ExpiresAt
 		sess.RefreshToken = srefreshtok
+		sess.Stage = corev1beta1.Session_REFRESHABLE
 
 		refreshTok, err = marshalToken(urefreshtok)
 		if err != nil {
