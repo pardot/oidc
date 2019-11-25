@@ -16,10 +16,7 @@ lint: $(gopath)/bin/gobin
 $(gopath)/bin/gobin:
 	(cd /tmp && GO111MODULE=on go get -u github.com/myitcv/gobin@latest)
 
-proto: proto/core/v1beta1/storage.pb.go proto/example/v1beta1/example.pb.go
+proto: proto/core/v1beta1/storage.pb.go
 
 proto/core/v1beta1/storage.pb.go: proto/core/v1beta1/storage.proto
 	protoc -I proto/core/v1beta1 --go_out=proto/core/v1beta1 storage.proto
-
-proto/example/v1beta1/example.pb.go: proto/example/v1beta1/example.proto
-	protoc -I proto/example/v1beta1 --go_out=proto/example/v1beta1 example.proto

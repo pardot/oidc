@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package deci.example.v1beta1;
-option go_package = "examplestate";
-
-message User {
-}
