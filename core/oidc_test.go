@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"net/url"
 	"testing"
@@ -692,6 +693,129 @@ func TestFetchRefreshSession(t *testing.T) {
 
 			if tc.Cmp != nil {
 				tc.Cmp(t, sess, got)
+			}
+		})
+	}
+}
+
+func TestUserinfo(t *testing.T) {
+	echoHandler := func(w *json.Encoder, uireq *UserinfoRequest) error {
+		o := map[string]interface{}{
+			"gotsess": uireq.SessionID,
+		}
+
+		if err := w.Encode(o); err != nil {
+			t.Fatal(err)
+		}
+
+		return nil
+	}
+
+	for _, tc := range []struct {
+		Name string
+		// Setup should return both a session to be persisted, and an access
+		// token
+		Setup   func(t *testing.T) (sess *corev1beta1.Session, accessToken string)
+		Handler func(w *json.Encoder, uireq *UserinfoRequest) error
+		// WantErr signifies that we expect an error
+		WantErr bool
+		// WantJSON is what we want the endpoint to return
+		WantJSON map[string]interface{}
+	}{
+		{
+			Name: "Simple output, valid session",
+			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+				sid := "session-id"
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corev1beta1.Session{
+					Id:          sid,
+					AccessToken: s,
+					ExpiresAt:   tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+				}
+
+				return sess, mustMarshal(u)
+			},
+			Handler: echoHandler,
+			WantJSON: map[string]interface{}{
+				"gotsess": "session-id",
+			},
+		},
+		{
+			Name: "Token for non-existant session",
+			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+				sid := "session-id"
+				u, _, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				return nil, mustMarshal(u)
+			},
+			Handler: echoHandler,
+			WantErr: true,
+		},
+		{
+			Name: "Expired access token",
+			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+				sid := "session-id"
+				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), -1*time.Minute))
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				sess = &corev1beta1.Session{
+					Id:          sid,
+					AccessToken: s,
+					ExpiresAt:   tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+				}
+
+				return sess, mustMarshal(u)
+			},
+			Handler: echoHandler,
+			WantErr: true,
+		},
+		{
+			Name: "No access token",
+			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+				return nil, ""
+			},
+			Handler: echoHandler,
+			WantErr: true,
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			smgr := newStubSMGR()
+
+			oidc, err := New(&Config{}, smgr, &stubCS{}, testSigner)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sess, at := tc.Setup(t)
+
+			if sess != nil {
+				if err := smgr.PutSession(context.Background(), sess); err != nil {
+					t.Fatalf("error persisting initial session: %v", err)
+				}
+			}
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/userinfo", nil)
+
+			if at != "" {
+				req.Header.Set("authorization", "Bearer "+at)
+			}
+
+			err = oidc.Userinfo(rec, req, tc.Handler)
+			if tc.WantErr && err == nil {
+				t.Error("want error, but got none")
+			}
+			if !tc.WantErr && err != nil {
+				t.Errorf("want no error, got: %v", err)
 			}
 		})
 	}

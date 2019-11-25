@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -533,12 +534,75 @@ type UserinfoRequest struct {
 // Userinfo can handle a request to the userinfo endpoint. If the request is not
 // valid, an error will be returned. Otherwise handler will be invoked with
 // information about the requestor passed in. This handler should write the
-// response data to the passed JSON encoder. This could be the stored claims if
-// the ID Token contents are sufficient, otherwise this should be the desired
-// response. This will return the desired information in an unsigned format.
+// response data to the passed JSON encoder.
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
-func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w *json.Encoder, uireq *UserinfoRequest) error) (err error) {
+func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w *json.Encoder, uireq *UserinfoRequest) error) error {
+	authSp := strings.SplitN(req.Header.Get("authorization"), " ", 2)
+	if !strings.EqualFold(authSp[0], "bearer") || len(authSp) != 2 {
+		be := &bearerError{} // no content, just request auth
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
+	uaccess, err := unmarshalToken(authSp[1])
+	if err != nil {
+		be := &bearerError{Code: bearerErrorCodeInvalidRequest, Description: "malformed token"}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
+	// make sure we have an unexpired session
+	sess, err := getSession(req.Context(), o.smgr, uaccess.SessionId)
+	if err != nil {
+		herr := &httpError{Code: http.StatusInternalServerError, Cause: err}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
+	// make sure we have a valid, unexpired session and an unexpired token
+	if sess == nil || tsAfter(sess.ExpiresAt, o.tsnow()) || tsAfter(sess.AccessToken.ExpiresAt, o.tsnow()) {
+		be := &bearerError{Code: bearerErrorCodeInvalidToken, Description: "token no longer valid"}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
+	// and make sure the token is valid
+	ok, err := tokensMatch(uaccess, sess.AccessToken)
+	if err != nil {
+		herr := &httpError{Code: http.StatusInternalServerError, Cause: err}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+	if !ok {
+		// if we're passed an invalid access token drop the whole session, might
+		// be under attack
+		if err := o.smgr.DeleteSession(req.Context(), sess.Id); err != nil {
+			herr := &httpError{Code: http.StatusInternalServerError, Cause: err}
+			_ = writeError(w, req, herr)
+			return herr
+		}
+		be := &bearerError{Code: bearerErrorCodeInvalidToken, Description: "token not valid"}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
+	// If we make it to here, we have been presented a valid token for a valid session. Run the handler.
+	uireq := &UserinfoRequest{
+		SessionID: uaccess.SessionId,
+	}
+	jenc := json.NewEncoder(w)
+
+	if err := handler(jenc, uireq); err != nil {
+		herr := &httpError{Code: http.StatusInternalServerError, Cause: err, CauseMsg: "error in user handler"}
+		_ = writeError(w, req, herr)
+		return herr
+	}
+
 	return nil
 }
 

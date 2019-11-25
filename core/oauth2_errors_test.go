@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"golang.org/x/text/language"
 	"golang.org/x/text/search"
 )
@@ -129,6 +130,19 @@ func TestWriteError(t *testing.T) {
 				}
 			},
 		},
+		{
+			Name: "HTTP error can set WWW-Authenticate header",
+			Err:  &httpError{Message: "usermessage", Code: 401, WWWAuthenticate: "error"},
+			Cmp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				if rec.Code != http.StatusUnauthorized {
+					t.Errorf("want 401, got %d", rec.Code)
+				}
+
+				if wwa := rec.Header().Get("www-authenticate"); wwa != "error" {
+					t.Errorf("want www-authenticate \"error\", got: %s", wwa)
+				}
+			},
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/", nil)
@@ -140,6 +154,36 @@ func TestWriteError(t *testing.T) {
 			}
 
 			tc.Cmp(t, rec)
+		})
+	}
+}
+
+func TestBearerError(t *testing.T) {
+	for _, tc := range []struct {
+		Name  string
+		Error *bearerError
+		Want  string
+	}{
+		{
+			Name:  "Empty",
+			Error: &bearerError{},
+			Want:  "Bearer ",
+		},
+		{
+			Name:  "Everything",
+			Error: &bearerError{Realm: "realm", Code: bearerErrorCodeInvalidRequest, Description: "everything in here"},
+			Want:  `Bearer realm="realm" error="invalid_request" error_description="everything in here"`,
+		},
+		{
+			Name:  "Code only",
+			Error: &bearerError{Code: bearerErrorCodeInvalidToken},
+			Want:  `Bearer error="invalid_token"`,
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.Error.String(), tc.Want); diff != "" {
+				t.Error(diff)
+			}
 		})
 	}
 }
