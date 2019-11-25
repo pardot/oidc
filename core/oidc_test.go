@@ -438,6 +438,69 @@ func TestToken(t *testing.T) {
 			t.Errorf("want token exp %s, got: %s", (5 * time.Minute).String(), tresp.ExpiresIn.String())
 		}
 	})
+
+	t.Run("Refresh token happy path", func(t *testing.T) {
+		o := newOIDC()
+		codeToken := newCodeSess(t, o.smgr)
+
+		ih := newHandler(t)
+		h := func(req *TokenRequest) (*TokenResponse, error) {
+			r, err := ih(req)
+			r.AccessTokenValidFor = 5 * time.Minute
+			r.RefreshTokenValidFor = 10 * time.Minute
+			r.AllowRefresh = true
+			return r, err
+		}
+
+		// exchange the code for access/refresh tokens first
+		treq := &tokenRequest{
+			GrantType:    GrantTypeAuthorizationCode,
+			Code:         codeToken,
+			RedirectURI:  redirectURI,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		tresp, err := o.token(context.Background(), treq, h)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if tresp.AccessToken == "" {
+			t.Error("token request should have returned an access token, but got none")
+		}
+
+		if tresp.RefreshToken == "" {
+			t.Error("token request should have returned a refresh token, but got none")
+		}
+
+		refreshToken := tresp.RefreshToken
+
+		// keep trying to refresh
+		for i := 0; i < 5; i++ {
+			treq = &tokenRequest{
+				GrantType:    GrantTypeRefreshToken,
+				RefreshToken: refreshToken,
+				ClientID:     clientID,
+				ClientSecret: clientSecret,
+			}
+
+			tresp, err := o.token(context.Background(), treq, h)
+			if err != nil {
+				t.Fatalf("unexpected error calling token with refresh token: %v", err)
+			}
+
+			if tresp.AccessToken == "" {
+				t.Error("refresh request should have returned an access token, but got none")
+			}
+
+			if tresp.RefreshToken == "" {
+				t.Error("refresh request should have returned a refresh token, but got none")
+			}
+
+			refreshToken = tresp.RefreshToken
+		}
+	})
 }
 
 func TestFetchCodeSession(t *testing.T) {

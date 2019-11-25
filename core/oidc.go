@@ -382,23 +382,37 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	useratok, satok, err := newToken(sess.Id, corev1beta1.TokenType_ACCESS_TOKEN, tsAdd(o.tsnow(), tresp.AccessTokenValidFor))
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
-
 	}
-
+	sess.ExpiresAt = satok.ExpiresAt
 	sess.AccessToken = satok
-
-	// TODO - generate refresh token if requested/allowed
-
-	// extend the session expiration time to the greater of the refresh
-	// or access token lifecycle
-
-	if err := o.smgr.PutSession(ctx, sess); err != nil {
-		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
-	}
 
 	accessTok, err := marshalToken(useratok)
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal user token", Cause: err}
+	}
+
+	// If we're allowing refresh, issue one of those too.
+	// do this after, as it'll set a longer expiration on the session
+	var refreshTok string
+	if tresp.AllowRefresh {
+		urefreshtok, srefreshtok, err := newToken(sess.Id, corev1beta1.TokenType_REFRESH_TOKEN, tsAdd(o.tsnow(), tresp.RefreshTokenValidFor))
+		if err != nil {
+			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
+		}
+		sess.ExpiresAt = srefreshtok.ExpiresAt
+		sess.RefreshToken = srefreshtok
+
+		refreshTok, err = marshalToken(urefreshtok)
+		if err != nil {
+			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to marshal refresh token", Cause: err}
+		}
+	} else {
+		// clear any token
+		sess.RefreshToken = nil
+	}
+
+	if err := o.smgr.PutSession(ctx, sess); err != nil {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
 	}
 
 	idtb, err := json.Marshal(tresp.IDToken)
@@ -412,9 +426,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	return &tokenResponse{
-		AccessToken: accessTok,
-		TokenType:   "bearer",
-		ExpiresIn:   tresp.AccessTokenValidFor,
+		AccessToken:  accessTok,
+		RefreshToken: refreshTok,
+		TokenType:    "bearer",
+		ExpiresIn:    tresp.AccessTokenValidFor,
 		ExtraParams: map[string]interface{}{
 			"id_token": string(sidt),
 		},
@@ -470,11 +485,11 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev
 func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*corev1beta1.Session, error) {
 	urefresh, err := unmarshalToken(treq.RefreshToken)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
 	}
 
 	if urefresh.TokenType != corev1beta1.TokenType_REFRESH_TOKEN {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: fmt.Errorf("passed token was the wrong type")}
+		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: fmt.Errorf("passed token was the wrong type")}
 	}
 
 	sess, err := getSession(ctx, o.smgr, urefresh.SessionId)
@@ -498,7 +513,7 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*co
 
 	ok, err := tokensMatch(urefresh, sess.RefreshToken)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
 	}
 	if !ok {
 		// if we're passed an invalid refresh token, assume we're under attack and drop the session

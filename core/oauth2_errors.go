@@ -186,7 +186,11 @@ type tokenError struct {
 }
 
 func (t *tokenError) Error() string {
-	return fmt.Sprintf("%s error in authorization request: %s", t.Code, t.Description)
+	str := fmt.Sprintf("%s error in token request: %s", t.Code, t.Description)
+	if t.Cause != nil {
+		str = fmt.Sprintf("%s (cause: %s)", str, t.Cause.Error())
+	}
+	return str
 }
 
 func (t *tokenError) Unwrap() error {
