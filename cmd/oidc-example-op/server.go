@@ -53,10 +53,7 @@ func (s *server) authorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// set a cookie with the auth ID, so we can track it. Note - this should
-	// _never_ be done in a real application. The auth ID should generally be
-	// kept secret from the user, and the user should not be able to pass one
-	// directly.
+	// set a cookie with the auth ID, so we can track it.
 	aidc := &http.Cookie{
 		Name:   sessIDCookie,
 		Value:  ar.SessionID,
