@@ -28,6 +28,7 @@ message Authorization {
   repeated string scopes = 1 [ json_name = "scopes" ];
   string acr = 2 [ json_name = "acr" ];
   string amr = 3 [ json_name = "amr" ];
+  google.protobuf.Timestamp authorized_at = 4 [ json_name = "authorized_at" ];
 }
 
 // Session represents an authenticated user from the time they are issued a

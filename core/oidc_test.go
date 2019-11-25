@@ -11,6 +11,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
@@ -248,6 +249,57 @@ func TestFinishAuthorization(t *testing.T) {
 	}
 }
 
+func TestIDTokenPrefill(t *testing.T) {
+	now := time.Date(2019, 11, 25, 12, 54, 11, 0, time.UTC)
+	tsNow, _ := ptypes.TimestampProto(now)
+	nowFn := func() time.Time {
+		return now
+	}
+
+	for _, tc := range []struct {
+		Name string
+		TReq TokenRequest
+		Want IDToken
+	}{
+		{
+			Name: "Fields filled",
+			TReq: TokenRequest{
+				ClientID: "client",
+
+				Authorization: Authorization{
+					AMR: "amr",
+					ACR: "acr",
+				},
+
+				authTime: tsNow,
+				authReq: &corev1beta1.AuthRequest{
+					Nonce: "nonce",
+				},
+
+				now: nowFn,
+			},
+			Want: IDToken{
+				Issuer:   "issuer",
+				Subject:  "subject",
+				Audience: Audience{"client"},
+				Expiry:   1574686451,
+				IssuedAt: 1574686451,
+				AuthTime: 1574686451,
+				ACR:      "acr",
+				Nonce:    "nonce",
+				AMR:      "amr",
+			},
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			tok := tc.TReq.PrefillIDToken("issuer", "subject", now)
+			if diff := cmp.Diff(tc.Want, tok, cmpopts.IgnoreUnexported(IDToken{})); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
 func TestToken(t *testing.T) {
 	const (
 		clientID     = "client-id"
@@ -295,10 +347,11 @@ func TestToken(t *testing.T) {
 		}
 
 		sess := corev1beta1.Session{
-			Id:        utok.SessionId,
-			AuthCode:  stok,
-			ClientId:  clientID,
-			ExpiresAt: tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+			Id:            utok.SessionId,
+			AuthCode:      stok,
+			Authorization: &corev1beta1.Authorization{},
+			ClientId:      clientID,
+			ExpiresAt:     tsAdd(ptypes.TimestampNow(), 1*time.Minute),
 		}
 
 		if err := smgr.PutSession(context.Background(), &sess); err != nil {

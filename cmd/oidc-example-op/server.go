@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	"sync"
+	"time"
 
 	"net/http"
 
@@ -94,7 +95,7 @@ func (s *server) token(w http.ResponseWriter, req *http.Request) {
 		meta := s.storage.sessions[tr.SessionID].Meta
 		s.storage.sessions[tr.SessionID].Meta = meta
 
-		idt := core.IDToken{}
+		idt := tr.PrefillIDToken("http://localhost:8085", "subject", time.Now().Add(5*time.Minute))
 
 		return &core.TokenResponse{
 			AllowRefresh: false,

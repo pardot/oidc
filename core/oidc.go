@@ -101,6 +101,7 @@ type OIDC struct {
 	authValidityTime time.Duration
 	codeValidityTime time.Duration
 
+	now   func() time.Time
 	tsnow func() *timestamp.Timestamp
 }
 
@@ -113,6 +114,7 @@ func New(cfg *Config, smgr SessionManager, clientSource ClientSource, signer Sig
 		authValidityTime: cfg.AuthValidityTime,
 		codeValidityTime: cfg.CodeValidityTime,
 
+		now:   time.Now,
 		tsnow: ptypes.TimestampNow,
 	}
 
@@ -249,9 +251,10 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 	}
 
 	sess.Authorization = &corev1beta1.Authorization{
-		Scopes: auth.Scopes,
-		Acr:    auth.ACR,
-		Amr:    auth.AMR,
+		Scopes:       auth.Scopes,
+		Acr:          auth.ACR,
+		Amr:          auth.AMR,
+		AuthorizedAt: o.tsnow(),
 	}
 
 	switch sess.Request.ResponseType {
@@ -314,6 +317,36 @@ type TokenRequest struct {
 	GrantType GrantType
 	// RefreshRequested is true if the offline_access scope was requested.å
 	RefreshRequested bool
+
+	authTime *timestamp.Timestamp
+	authReq  *corev1beta1.AuthRequest
+	now      func() time.Time
+}
+
+// PrefillIDToken can be used to create a basic ID token containing all required
+// claims, mapped with information from this request. The issuer and subject
+// will be set as provided, and the token's expiry will be set to the
+// appropriate time base on the validity period
+//
+// Aside from the explicitly passed fields, the following information will be set:
+// * Audience (aud) will contain the Client ID
+// * ACR claim set
+// * AMR claim set
+// * Issued At (iat) time set
+// * Auth Time (auth_time) time set
+// * Nonce that was originally passed in, if there was one
+func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) IDToken {
+	return IDToken{
+		Issuer:   iss,
+		Subject:  sub,
+		Expiry:   NewUnixTime(expires),
+		Audience: Audience{t.ClientID},
+		ACR:      t.Authorization.ACR,
+		AMR:      t.Authorization.AMR,
+		IssuedAt: NewUnixTime(t.now()),
+		AuthTime: newUnixTimeProto(t.authTime),
+		Nonce:    t.authReq.Nonce,
+	}
 }
 
 // TokenResponse is returned by the token endpoint handler, indicating what it
@@ -396,18 +429,23 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	// Call the handler with information about the request, and get the response.
-	authz := Authorization{}
-	if sess.Authorization != nil {
-		authz.Scopes = sess.Authorization.Scopes
-		authz.ACR = sess.Authorization.Acr
-		authz.AMR = sess.Authorization.Amr
+	if sess.Authorization == nil {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "session authorization is nil"}
 	}
+
 	tr := &TokenRequest{
-		SessionID:        sess.Id,
-		ClientID:         req.ClientID,
-		Authorization:    authz,
+		SessionID: sess.Id,
+		ClientID:  req.ClientID,
+		Authorization: Authorization{
+			Scopes: sess.Authorization.Scopes,
+			ACR:    sess.Authorization.Acr,
+			AMR:    sess.Authorization.Amr,
+		},
 		GrantType:        req.GrantType,
 		RefreshRequested: strsContains(sess.Scopes, "offline_access"),
+
+		authTime: sess.Authorization.AuthorizedAt,
+		authReq:  sess.Request,
 	}
 
 	tresp, err := handler(tr)

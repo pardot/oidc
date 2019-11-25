@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/golang/protobuf/ptypes/timestamp"
 )
 
 // IDToken represents the set of JWT claims for the user.
@@ -31,9 +33,9 @@ type IDToken struct {
 	// the current date/time MUST be before the expiration date/time listed in
 	// the value. Implementers MAY provide for some small leeway, usually no
 	// more than a few minutes, to account for clock skew.
-	Expiry *UnixTime `json:"exp,omitempty"`
+	Expiry UnixTime `json:"exp,omitempty"`
 	// REQUIRED. Time at which the JWT was issued.
-	IssuedAt *UnixTime `json:"iat,omitempty"`
+	IssuedAt UnixTime `json:"iat,omitempty"`
 	// Time when the End-User authentication occurred. Its value is a JSON
 	// number representing the number of seconds from 1970-01-01T0:0:0Z as
 	// measured in UTC until the date/time. When a max_age request is made or
@@ -41,7 +43,7 @@ type IDToken struct {
 	// REQUIRED; otherwise, its inclusion is OPTIONAL. (The auth_time Claim
 	// semantically corresponds to the OpenID 2.0 PAPE [OpenID.PAPE] auth_time
 	// response parameter.)
-	AuthTime *UnixTime `json:"auth_time,omitempty"`
+	AuthTime UnixTime `json:"auth_time,omitempty"`
 	// String value used to associate a Client session with an ID Token, and to
 	// mitigate replay attacks. The value is passed through unmodified from the
 	// Authentication Request to the ID Token. If present in the ID Token,
@@ -219,9 +221,13 @@ func (a *Audience) UnmarshalJSON(b []byte) error {
 type UnixTime int64
 
 // NewUnixTime creates a UnixTime from the given Time, t
-func NewUnixTime(t time.Time) *UnixTime {
-	ut := UnixTime(t.Unix())
-	return &ut
+func NewUnixTime(t time.Time) UnixTime {
+	return UnixTime(t.Unix())
+}
+
+// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
+func newUnixTimeProto(t *timestamp.Timestamp) UnixTime {
+	return UnixTime(t.Seconds)
 }
 
 // Time returns the *time.Time this represents
