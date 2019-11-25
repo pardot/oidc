@@ -139,6 +139,10 @@ type AuthorizationRequest struct {
 	//
 	// https://openid.net/specs/openid-connect-core-1_0.html#acrSemantics
 	ACRValues []string
+	// Scopes that have been requested
+	Scopes []string
+	// ClientID that started this request
+	ClientID string
 }
 
 // StartAuthorization can be used to handle a request to the auth endpoint. It
@@ -213,6 +217,8 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 	return &AuthorizationRequest{
 		SessionID: sess.Id,
 		ACRValues: strings.Split(authreq.Raw.Get("acr_values"), " "),
+		Scopes:    authreq.Scopes,
+		ClientID:  authreq.ClientID,
 	}, nil
 }
 
@@ -446,6 +452,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 		authTime: sess.Authorization.AuthorizedAt,
 		authReq:  sess.Request,
+		now:      o.now,
 	}
 
 	tresp, err := handler(tr)

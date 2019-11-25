@@ -203,13 +203,13 @@ func (a *Audience) UnmarshalJSON(b []byte) error {
 		for i, ia := range ja {
 			sa, ok := ia.(string)
 			if !ok {
-				return fmt.Errorf("Failed to unmarshal audience, expected []string but found %T", ia)
+				return fmt.Errorf("failed to unmarshal audience, expected []string but found %T", ia)
 			}
 			aa[i] = sa
 		}
 		*a = aa
 	default:
-		return fmt.Errorf("Failed to unmarshal audience, expected string or []string but found %T", ua)
+		return fmt.Errorf("failed to unmarshal audience, expected string or []string but found %T", ua)
 	}
 
 	return nil

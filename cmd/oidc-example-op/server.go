@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,11 @@ const loginPage = `<!DOCTYPE html>
 	<body>
 		<h1>Log in to IDP</h1>
 		<form action="/finish" method="POST">
+			<p>Subject: <input type="text" name="subject" value="auser" required size="15"></p>
+			<p>Granted Scopes (space delimited): <input type="text" name="scopes" value="{{ .acr }}" size="15"></p>
+			<p>ACR: <input type="text" name="acr" size="15"></p>
+			<p>AMR: <input type="text" name="amr" value="{{ .acr }}" size="15"></p>
+			<p>Userinfo: <textarea name="userinfo" rows="10" cols="30">{"name": "A User"}</textarea></p>
     		<input type="submit" value="Submit">
 		</form>
 	</body>
@@ -53,11 +60,18 @@ func (s *server) authorization(w http.ResponseWriter, req *http.Request) {
 	aidc := &http.Cookie{
 		Name:   sessIDCookie,
 		Value:  ar.SessionID,
-		MaxAge: 60,
+		MaxAge: 600,
 	}
 	http.SetCookie(w, aidc)
 
-	tmplData := map[string]interface{}{}
+	var acr string
+	if len(ar.ACRValues) > 0 {
+		acr = ar.ACRValues[0]
+	}
+	tmplData := map[string]interface{}{
+		"acr":    acr,
+		"scopes": strings.Join(ar.Scopes, " "),
+	}
 
 	if err := loginTmpl.Execute(w, tmplData); err != nil {
 		http.Error(w, fmt.Sprintf("failed to render template: %v", err), http.StatusInternalServerError)
@@ -77,14 +91,28 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	auth := &core.Authorization{
+		Scopes: strings.Split(req.Form.Get("scopes"), " "),
+		ACR:    req.Form.Get("acr"),
+		AMR:    req.Form.Get("amr"),
+	}
+
 	// We have the session ID. This is stable for the session, so we can track
 	// whatever we want along with it. We always get the session ID in later
 	// requests, so we can always pull things out
-	meta := &metadata{}
+
+	meta := &metadata{
+		Subject:  req.Form.Get("subject"),
+		Userinfo: map[string]interface{}{},
+	}
+	if err := json.Unmarshal([]byte(req.Form.Get("userinfo")), &meta.Userinfo); err != nil {
+		http.Error(w, fmt.Sprintf("failed to unmarshal userinfo: %v", err), http.StatusInternalServerError)
+		return
+	}
 	s.storage.sessions[sessID.Value].Meta = meta
 
 	// finalize it. this will redirect the user to the appropriate place
-	if err := s.oidc.FinishAuthorization(w, req, sessID.Value, &core.Authorization{}); err != nil {
+	if err := s.oidc.FinishAuthorization(w, req, sessID.Value, auth); err != nil {
 		log.Printf("error finishing authorization: %v", err)
 	}
 }

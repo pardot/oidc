@@ -105,7 +105,8 @@ func (s *server) callback(w http.ResponseWriter, req *http.Request) {
 
 	gotState := req.FormValue("state")
 	if gotState == "" || gotState != statec.Value {
-		http.Error(w, "returned state doesn't match request state", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("returned state %q doesn't match request state %q", gotState, statec.Value), http.StatusBadRequest)
+		return
 	}
 
 	oa2Tok, err := s.oa2cfg.Exchange(req.Context(), code)

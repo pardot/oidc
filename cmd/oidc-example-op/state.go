@@ -8,7 +8,10 @@ import (
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
-type metadata struct{}
+type metadata struct {
+	Subject  string
+	Userinfo map[string]interface{}
+}
 
 type session struct {
 	Meta    *metadata

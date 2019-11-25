@@ -21,7 +21,7 @@ func (s *staticClients) ValidateClientSecret(clientID, clientSecret string) (ok 
 }
 
 func (s *staticClients) ValidateClientRedirectURI(clientID, redirectURI string) (ok bool, err error) {
-	if clientID == "client-id" && redirectURI == "http://127.0.0.1:8084/callback" {
+	if clientID == "client-id" && redirectURI == "http://localhost:8084/callback" {
 		return true, nil
 	}
 	return false, nil

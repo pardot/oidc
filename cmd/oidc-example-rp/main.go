@@ -8,12 +8,12 @@ import (
 )
 
 func main() {
-	oidcSvrAddr := "http://127.0.0.1:8085"
+	oidcSvrAddr := "http://localhost:8085"
 
 	oa2cfg := oauth2.Config{
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
-		RedirectURL:  "http://127.0.0.1:8084/callback",
+		RedirectURL:  "http://localhost:8084/callback",
 
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  oidcSvrAddr + "/auth",
@@ -27,8 +27,8 @@ func main() {
 		oa2cfg: &oa2cfg,
 	}
 
-	log.Printf("Listening on: %s", "127.0.0.1:8084")
-	err := http.ListenAndServe("127.0.0.1:8084", svr)
+	log.Printf("Listening on: %s", "localhost:8084")
+	err := http.ListenAndServe("localhost:8084", svr)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -14,7 +14,7 @@ func main() {
 	oidc, err := core.New(&core.Config{
 		AuthValidityTime: 5 * time.Minute,
 		CodeValidityTime: 5 * time.Minute,
-	}, smgr, &staticClients{}, nil)
+	}, smgr, &staticClients{}, mustInitSigner())
 	if err != nil {
 		log.Fatalf("Failed to create OIDC server instance: %v", err)
 	}
@@ -24,8 +24,8 @@ func main() {
 		storage: smgr,
 	}
 
-	log.Printf("Listening on: %s", "127.0.0.1:8085")
-	err = http.ListenAndServe("127.0.0.1:8085", svr)
+	log.Printf("Listening on: %s", "localhost:8085")
+	err = http.ListenAndServe("localhost:8085", svr)
 	if err != nil {
 		log.Fatal(err)
 	}
