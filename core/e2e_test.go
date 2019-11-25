@@ -118,7 +118,7 @@ func TestE2E(t *testing.T) {
 					TokenURL: oidcSvr.URL + "/token",
 				},
 
-				Scopes: []string{"openid"},
+				Scopes: []string{"openid", "offline_access"},
 			}
 
 			client := &http.Client{}
