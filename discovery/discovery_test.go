@@ -44,10 +44,15 @@ func TestDiscovery(t *testing.T) {
 	ts := httptest.NewServer(m)
 
 	pm := &ProviderMetadata{
-		Issuer: ts.URL,
+		Issuer:                ts.URL,
+		AuthorizationEndpoint: "/auth",
+		TokenEndpoint:         "/token",
 	}
 
-	h := NewHandler(pm, WithKeysource(ks, 1*time.Nanosecond))
+	h, err := NewHandler(pm, WithKeysource(ks, 1*time.Nanosecond), WithCoreDefaults())
+	if err != nil {
+		t.Fatalf("error creating handler: %v", err)
+	}
 	m.Handle(oidcwk+"/", http.StripPrefix(oidcwk, h))
 
 	cli, err := NewClient(ctx, ts.URL)

@@ -1,5 +1,10 @@
 package discovery
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ProviderMetadata implements the JSON structure that describes the
 // configuration of an OIDC provider
 //
@@ -175,4 +180,38 @@ type ProviderMetadata struct {
 	// registration process SHOULD display this URL to the person registering
 	// the Client if it is given.
 	OPTOSURI string `json:"op_tos_uri,omitempty"`
+}
+
+func (p *ProviderMetadata) validate() error {
+	var errs []string
+
+	aestr := func(val, e string) {
+		if val == "" {
+			errs = append(errs, e)
+		}
+	}
+
+	aessl := func(val []string, e string) {
+		if len(val) == 0 {
+			errs = append(errs, e)
+		}
+	}
+
+	aestr(p.Issuer, "Issuer is required")
+	aestr(p.AuthorizationEndpoint, "AuthorizationEndpoint is required")
+	aestr(p.JWKSURI, "JWKSURI is required")
+	aessl(p.ResponseTypesSupported, "ResponseTypes supported is required")
+	aessl(p.SubjectTypesSupported, "Subject Identifier Types are required")
+	aessl(p.IDTokenSigningAlgValuesSupported, "IDTokenSigningAlgValuesSupported are required")
+
+	if p.TokenEndpoint == "" {
+		if len(p.GrantTypesSupported) != 1 || p.GrantTypesSupported[0] != "implicit" {
+			errs = append(errs, "TokenEndpoint is required when we're not implicit-only")
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid provider metadata: %s", strings.Join(errs, ", "))
+	}
+	return nil
 }

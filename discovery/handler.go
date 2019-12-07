@@ -51,8 +51,34 @@ func WithKeysource(s KeySource, cacheFor time.Duration) func(h *Handler) {
 	}
 }
 
+// WithCoreDefaults is an option that will set the metadata to match the
+// capabilities of the `core` OIDC implementation, if they're not otherwise set
+func WithCoreDefaults() func(h *Handler) {
+	return func(h *Handler) {
+		if len(h.md.ResponseTypesSupported) == 0 {
+			h.md.ResponseTypesSupported = []string{
+				"code",
+				"id_token",
+				"id_token token",
+			}
+		}
+
+		if len(h.md.SubjectTypesSupported) == 0 {
+			h.md.SubjectTypesSupported = []string{"public"}
+		}
+
+		if len(h.md.IDTokenSigningAlgValuesSupported) == 0 {
+			h.md.IDTokenSigningAlgValuesSupported = []string{"RS256"}
+		}
+
+		if len(h.md.GrantTypesSupported) == 0 {
+			h.md.GrantTypesSupported = []string{"authorization_code"}
+		}
+	}
+}
+
 // NewHandler configures and returns a Handler
-func NewHandler(metadata *ProviderMetadata, opts ...HandlerOpt) *Handler {
+func NewHandler(metadata *ProviderMetadata, opts ...HandlerOpt) (*Handler, error) {
 	h := &Handler{
 		md:  metadata,
 		mux: http.NewServeMux(),
@@ -64,7 +90,11 @@ func NewHandler(metadata *ProviderMetadata, opts ...HandlerOpt) *Handler {
 
 	h.mux.HandleFunc("/", h.serveMetadata)
 
-	return h
+	if err := h.md.validate(); err != nil {
+		return nil, err
+	}
+
+	return h, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
