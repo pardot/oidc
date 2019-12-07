@@ -16,8 +16,8 @@ type mockKeysource struct {
 	keys []jose.JSONWebKey
 }
 
-func (m *mockKeysource) GetPublicKeys(ctx context.Context) ([]jose.JSONWebKey, error) {
-	return m.keys, nil
+func (m *mockKeysource) PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error) {
+	return &jose.JSONWebKeySet{Keys: m.keys}, nil
 }
 
 func TestDiscovery(t *testing.T) {

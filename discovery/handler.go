@@ -24,7 +24,7 @@ type Handler struct {
 
 	ks             KeySource
 	ksCacheFor     time.Duration
-	currKeys       []jose.JSONWebKey
+	currKeys       *jose.JSONWebKeySet
 	currKeysMu     sync.Mutex
 	lastKeysUpdate time.Time
 }
@@ -34,8 +34,8 @@ type HandlerOpt func(h *Handler)
 
 // KeySource is used to retrieve the public keys this provider is signing with
 type KeySource interface {
-	// GetPublicKeys should return the current signign key set
-	GetPublicKeys(ctx context.Context) ([]jose.JSONWebKey, error)
+	// PublicKeys should return the current signing key set
+	PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error)
 }
 
 // WithKeysource adds a keysource to the discovery endpoint. This will enable
@@ -113,17 +113,17 @@ func (h *Handler) serveKeys(w http.ResponseWriter, req *http.Request) {
 	defer h.currKeysMu.Unlock()
 
 	if h.currKeys == nil || time.Now().After(h.lastKeysUpdate) {
-		k, err := h.ks.GetPublicKeys(req.Context())
+		ks, err := h.ks.PublicKeys(req.Context())
 		if err != nil {
 			http.Error(w, "Internal Error", http.StatusInternalServerError)
 			return
 		}
 
-		h.currKeys = k
+		h.currKeys = ks
 		h.lastKeysUpdate = time.Now()
 	}
 
-	if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: h.currKeys}); err != nil {
+	if err := json.NewEncoder(w).Encode(h.ks); err != nil {
 		http.Error(w, "Internal Error", http.StatusInternalServerError)
 		return
 	}
