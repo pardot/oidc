@@ -15,7 +15,9 @@ var _ http.Handler = (*Handler)(nil)
 // Handler is a http.Handler that can serve the OIDC provider metadata endpoint,
 // and optionally keys from a source
 //
-// It should be mounted at `<issuer>/.well-known/openid-configuration`
+// It should be mounted at `<issuer>/.well-known/openid-configuration`, and all
+// subpaths. This can be achieved with the stdlib mux by using a trailing slash.
+// Any prefix should be stripped before calling this Handler
 type Handler struct {
 	md  *ProviderMetadata
 	mux *http.ServeMux
@@ -55,10 +57,13 @@ func NewHandler(metadata *ProviderMetadata, opts ...HandlerOpt) *Handler {
 		md:  metadata,
 		mux: http.NewServeMux(),
 	}
+
 	for _, o := range opts {
 		o(h)
 	}
+
 	h.mux.HandleFunc("/", h.serveMetadata)
+
 	return h
 }
 
@@ -77,7 +82,7 @@ func (h *Handler) serveKeys(w http.ResponseWriter, req *http.Request) {
 	h.currKeysMu.Lock()
 	defer h.currKeysMu.Unlock()
 
-	if time.Now().After(h.lastKeysUpdate) {
+	if h.currKeys == nil || time.Now().After(h.lastKeysUpdate) {
 		k, err := h.ks.GetPublicKeys(req.Context())
 		if err != nil {
 			http.Error(w, "Internal Error", http.StatusInternalServerError)
@@ -85,6 +90,7 @@ func (h *Handler) serveKeys(w http.ResponseWriter, req *http.Request) {
 		}
 
 		h.currKeys = k
+		h.lastKeysUpdate = time.Now()
 	}
 
 	if err := json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: h.currKeys}); err != nil {
