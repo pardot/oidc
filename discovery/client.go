@@ -57,7 +57,7 @@ func NewClient(ctx context.Context, issuer string, opts ...ClientOpt) (*Client, 
 	err = json.NewDecoder(mdr.Body).Decode(c.md)
 	_ = mdr.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("error decoding provider metadata reponse: %v", err)
+		return nil, fmt.Errorf("error decoding provider metadata response: %v", err)
 	}
 
 	return c, nil
