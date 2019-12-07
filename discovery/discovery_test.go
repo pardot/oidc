@@ -60,12 +60,12 @@ func TestDiscovery(t *testing.T) {
 		t.Fatalf("failed to create discovery client: %v", err)
 	}
 
-	_, err = cli.GetPublicKey(ctx, "testkey")
+	_, err = cli.GetKey(ctx, "testkey")
 	if err != nil {
 		t.Errorf("wanted no error getting testkey, got: %v", err)
 	}
 
-	_, err = cli.GetPublicKey(ctx, "badkey")
+	_, err = cli.GetKey(ctx, "badkey")
 	if err == nil {
 		t.Errorf("wanted error getting non-existent key, but got none")
 	}

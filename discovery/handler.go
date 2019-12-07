@@ -123,7 +123,7 @@ func (h *Handler) serveKeys(w http.ResponseWriter, req *http.Request) {
 		h.lastKeysUpdate = time.Now()
 	}
 
-	if err := json.NewEncoder(w).Encode(h.ks); err != nil {
+	if err := json.NewEncoder(w).Encode(h.currKeys); err != nil {
 		http.Error(w, "Internal Error", http.StatusInternalServerError)
 		return
 	}

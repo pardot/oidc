@@ -12,6 +12,9 @@ import (
 
 const oidcwk = "/.well-known/openid-configuration"
 
+// keep us looking like a keysource, for consistency
+var _ KeySource = (*Client)(nil)
+
 // Client can be used to fetch the provider metadata for a given issuer, and can
 // also return the signing keys on demand.
 //
@@ -21,7 +24,7 @@ type Client struct {
 
 	hc *http.Client
 
-	jwks   jose.JSONWebKeySet
+	jwks   *jose.JSONWebKeySet
 	jwksMu sync.Mutex
 }
 
@@ -66,9 +69,9 @@ func (c *Client) Metadata() *ProviderMetadata {
 	return c.md
 }
 
-// GetPublicKeys will fetch and return the JWKS endpoint for this metadata. each
+// PublicKeys will fetch and return the JWKS endpoint for this metadata. each
 // request will perform a new HTTP request to the endpoint.
-func (c *Client) GetPublicKeys(ctx context.Context) ([]jose.JSONWebKey, error) {
+func (c *Client) PublicKeys(ctx context.Context) (*jose.JSONWebKeySet, error) {
 	if c.md.JWKSURI == "" {
 		return nil, fmt.Errorf("metadata has no JWKS endpoint, cannot fetch keys")
 	}
@@ -85,30 +88,29 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]jose.JSONWebKey, error) {
 		return nil, fmt.Errorf("failed decoding JWKS response: %v", err)
 	}
 
-	return ks.Keys, nil
+	return ks, nil
 }
 
-// GetPublicKey will return the key for the given kid. If the key has already
+// GetKey will return the key for the given kid. If the key has already
 // been fetched, no network request will be made - the cached version will be
 // returned. Otherwise, a call to the keys endpoint will be made.
-func (c *Client) GetPublicKey(ctx context.Context, kid string) (*jose.JSONWebKey, error) {
+func (c *Client) GetKey(ctx context.Context, kid string) (*jose.JSONWebKey, error) {
 	c.jwksMu.Lock()
 	defer c.jwksMu.Unlock()
 
-	for _, k := range c.jwks.Keys {
-		if k.KeyID == kid {
-			return &k, nil
+	if c.jwks != nil {
+		for _, k := range c.jwks.Keys {
+			if k.KeyID == kid {
+				return &k, nil
+			}
 		}
 	}
 
-	keys, err := c.GetPublicKeys(ctx)
+	ks, err := c.PublicKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	c.jwks = jose.JSONWebKeySet{
-		Keys: keys,
-	}
+	c.jwks = ks
 
 	// try again, with the fresh set
 	for _, k := range c.jwks.Keys {
