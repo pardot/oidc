@@ -78,7 +78,7 @@ type IDToken struct {
 	// Parties using this claim will need to agree upon the meanings of the
 	// values used, which may be context-specific. The amr value is an array of
 	// case sensitive strings.
-	AMR string `json:"amr,omitempty"`
+	AMR []string `json:"amr,omitempty"`
 	// OPTIONAL. Authorized party - the party to which the ID Token was issued.
 	// If present, it MUST contain the OAuth 2.0 Client ID of this party. This
 	// Claim is only needed when the ID Token has a single audience value and

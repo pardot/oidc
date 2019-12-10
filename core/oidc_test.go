@@ -268,7 +268,7 @@ func TestIDTokenPrefill(t *testing.T) {
 				ClientID: "client",
 
 				Authorization: Authorization{
-					AMR: "amr",
+					AMR: []string{"amr"},
 					ACR: "acr",
 				},
 
@@ -288,7 +288,7 @@ func TestIDTokenPrefill(t *testing.T) {
 				AuthTime: 1574686451,
 				ACR:      "acr",
 				Nonce:    "nonce",
-				AMR:      "amr",
+				AMR:      []string{"amr"},
 				Extra:    map[string]interface{}{},
 			},
 		},

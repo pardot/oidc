@@ -37,7 +37,7 @@ const loginPage = `<!DOCTYPE html>
 			<p>Subject: <input type="text" name="subject" value="auser" required size="15"></p>
 			<p>Granted Scopes (space delimited): <input type="text" name="scopes" value="{{ .acr }}" size="15"></p>
 			<p>ACR: <input type="text" name="acr" size="15"></p>
-			<p>AMR: <input type="text" name="amr" value="{{ .acr }}" size="15"></p>
+			<p>AMR (comma delimited): <input type="text" name="amr" value="{{ .amr }}" size="15"></p>
 			<p>Userinfo: <textarea name="userinfo" rows="10" cols="30">{"name": "A User"}</textarea></p>
     		<input type="submit" value="Submit">
 		</form>
@@ -86,7 +86,7 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 	auth := &core.Authorization{
 		Scopes: strings.Split(req.FormValue("scopes"), " "),
 		ACR:    req.FormValue("acr"),
-		AMR:    req.FormValue("amr"),
+		AMR:    strings.Split(req.FormValue("amr"), ","),
 	}
 
 	// We have the session ID. This is stable for the session, so we can track
