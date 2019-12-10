@@ -289,6 +289,7 @@ func TestIDTokenPrefill(t *testing.T) {
 				ACR:      "acr",
 				Nonce:    "nonce",
 				AMR:      "amr",
+				Extra:    map[string]interface{}{},
 			},
 		},
 	} {
