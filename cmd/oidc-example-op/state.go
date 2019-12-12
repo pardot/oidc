@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/pardot/oidc/core"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
 type metadata struct {
@@ -14,8 +14,8 @@ type metadata struct {
 }
 
 type session struct {
-	Meta    *metadata
-	Session *corev1beta1.Session
+	Meta     *metadata
+	SessData string
 }
 
 type storage struct {
@@ -29,20 +29,26 @@ func newStubSMGR() *storage {
 	}
 }
 
-func (s *storage) GetSession(_ context.Context, sessionID string) (core.Session, error) {
+func (s *storage) GetSession(_ context.Context, sessionID string, into core.Session) (bool, error) {
 	sess, ok := s.sessions[sessionID]
 	if !ok {
-		return nil, nil
+		return false, nil
 	}
-	return sess.Session, nil
+	if err := jsonpb.UnmarshalString(sess.SessData, into); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *storage) PutSession(_ context.Context, sess core.Session) error {
 	if sess.GetId() == "" {
 		return fmt.Errorf("session has no ID")
 	}
-	csess := sess.(*corev1beta1.Session)
-	s.sessions[sess.GetId()] = &session{Session: csess}
+	sessjson, err := (&jsonpb.Marshaler{}).MarshalToString(sess)
+	if err != nil {
+		return err
+	}
+	s.sessions[sess.GetId()] = &session{SessData: sessjson}
 	return nil
 }
 

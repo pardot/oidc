@@ -203,11 +203,12 @@ func TestFinishAuthorization(t *testing.T) {
 			SessionID:            mustGenerateID(),
 			WantReturnedErrMatch: matchHTTPErrStatus(403),
 			Check: func(t *testing.T, smgr SessionManager, _ *httptest.ResponseRecorder) {
-				gotSess, err := smgr.GetSession(context.Background(), sessID)
+				gotSess := &corev1beta1.Session{}
+				ok, err := smgr.GetSession(context.Background(), sessID, gotSess)
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if gotSess != nil {
+				if ok {
 					t.Errorf("want: no session returned, got: %v", gotSess)
 				}
 			},
@@ -586,6 +587,14 @@ func TestFetchCodeSession(t *testing.T) {
 
 				return sess, tr
 			},
+			Cmp: func(t *testing.T, stored, returned *corev1beta1.Session) {
+				if !returned.AuthCodeRedeemed {
+					t.Error("auth code should be marked as redeemed")
+				}
+				if returned.Id != stored.Id {
+					t.Error("mismatched session returned")
+				}
+			},
 		},
 		{
 			Name: "Code that does not correspond to a session",
@@ -682,7 +691,7 @@ func TestFetchCodeSession(t *testing.T) {
 			checkErrMatcher(t, tc.WantErrMatch, err)
 
 			if tc.WantErrMatch == nil && tc.Cmp == nil && !proto.Equal(sess, got) {
-				t.Errorf("returned session don't match persisted: %s", cmp.Diff(sess, got))
+				t.Errorf("returned session doesn't match persisted: %s", cmp.Diff(sess, got))
 			}
 
 			if tc.Cmp != nil {
@@ -724,6 +733,14 @@ func TestFetchRefreshSession(t *testing.T) {
 				}
 
 				return sess, tr
+			},
+			Cmp: func(t *testing.T, stored, returned *corev1beta1.Session) {
+				if returned.RefreshToken != nil {
+					t.Error("refresh token should be cleared")
+				}
+				if returned.Id != stored.Id {
+					t.Error("mismatched session returned")
+				}
 			},
 		},
 	} {
