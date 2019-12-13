@@ -501,7 +501,7 @@ func TestToken(t *testing.T) {
 			r, err := ih(req)
 			r.AccessTokenValidUntil = time.Now().Add(5 * time.Minute)
 			r.RefreshTokenValidUntil = time.Now().Add(10 * time.Minute)
-			r.AllowRefresh = true
+			r.IssueRefreshToken = true
 			return r, err
 		}
 
