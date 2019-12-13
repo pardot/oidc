@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"math"
 	"net/http/httptest"
 	"net/url"
@@ -756,12 +757,12 @@ func TestFetchRefreshSession(t *testing.T) {
 }
 
 func TestUserinfo(t *testing.T) {
-	echoHandler := func(w *json.Encoder, uireq *UserinfoRequest) error {
+	echoHandler := func(w io.Writer, uireq *UserinfoRequest) error {
 		o := map[string]interface{}{
 			"gotsess": uireq.SessionID,
 		}
 
-		if err := w.Encode(o); err != nil {
+		if err := json.NewEncoder(w).Encode(o); err != nil {
 			t.Fatal(err)
 		}
 
@@ -773,7 +774,7 @@ func TestUserinfo(t *testing.T) {
 		// Setup should return both a session to be persisted, and an access
 		// token
 		Setup   func(t *testing.T) (sess *corev1beta1.Session, accessToken string)
-		Handler func(w *json.Encoder, uireq *UserinfoRequest) error
+		Handler func(w io.Writer, uireq *UserinfoRequest) error
 		// WantErr signifies that we expect an error
 		WantErr bool
 		// WantJSON is what we want the endpoint to return
