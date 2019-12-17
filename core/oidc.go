@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -625,10 +626,10 @@ type UserinfoRequest struct {
 // Userinfo can handle a request to the userinfo endpoint. If the request is not
 // valid, an error will be returned. Otherwise handler will be invoked with
 // information about the requestor passed in. This handler should write the
-// response data to the passed JSON encoder.
+// appropriate response data in JSON format to the passed writer.
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
-func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w *json.Encoder, uireq *UserinfoRequest) error) error {
+func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w io.Writer, uireq *UserinfoRequest) error) error {
 	authSp := strings.SplitN(req.Header.Get("authorization"), " ", 2)
 	if !strings.EqualFold(authSp[0], "bearer") || len(authSp) != 2 {
 		be := &bearerError{} // no content, just request auth
@@ -686,9 +687,8 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	uireq := &UserinfoRequest{
 		SessionID: uaccess.SessionId,
 	}
-	jenc := json.NewEncoder(w)
 
-	if err := handler(jenc, uireq); err != nil {
+	if err := handler(w, uireq); err != nil {
 		herr := &httpError{Code: http.StatusInternalServerError, Cause: err, CauseMsg: "error in user handler"}
 		_ = writeError(w, req, herr)
 		return herr
