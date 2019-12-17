@@ -352,6 +352,7 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) IDToke
 		IssuedAt: NewUnixTime(t.now()),
 		AuthTime: newUnixTimeProto(t.authTime),
 		Nonce:    t.authReq.Nonce,
+		Extra:    map[string]interface{}{},
 	}
 }
 
