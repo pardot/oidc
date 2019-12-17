@@ -35,9 +35,9 @@ type Session interface {
 // lifecycle.
 type SessionManager interface {
 	// GetSession should return the current session state for the given session
-	// ID. If the session does not exist, it should return a nil session and no
-	// error.
-	GetSession(ctx context.Context, sessionID string) (Session, error)
+	// ID. It should be deserialized/written in to into. If the session does not
+	// exist, found should be false with no error.
+	GetSession(ctx context.Context, sessionID string, into Session) (found bool, err error)
 	// PutSession should persist the new state of the session
 	PutSession(context.Context, Session) error
 	// DeleteSession should remove the corresponding session.
@@ -706,16 +706,14 @@ func strsContains(strs []string, s string) bool {
 }
 
 func getSession(ctx context.Context, sm SessionManager, sessionID string) (*corev1beta1.Session, error) {
-	s, err := sm.GetSession(ctx, sessionID)
+	sess := &corev1beta1.Session{}
+
+	found, err := sm.GetSession(ctx, sessionID, sess)
 	if err != nil {
 		return nil, err
 	}
-	if s == nil {
+	if !found {
 		return nil, nil
 	}
-	cs, ok := s.(*corev1beta1.Session)
-	if !ok {
-		return nil, fmt.Errorf("Session implementation is of unknown type: %T", s)
-	}
-	return cs, nil
+	return sess, nil
 }

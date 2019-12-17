@@ -6,7 +6,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/pardot/oidc/signer"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -42,30 +42,37 @@ func (s *stubCS) ValidateClientRedirectURI(clientID, redirectURI string) (ok boo
 }
 
 type stubSMGR struct {
-	// sessions maps session objects by their ID
-	sessions map[string]*corev1beta1.Session
+	// sessions maps JSON session objects by their ID
+	// JSON > proto here for better debug output
+	sessions map[string]string
 }
 
 func newStubSMGR() *stubSMGR {
 	return &stubSMGR{
-		sessions: map[string]*corev1beta1.Session{},
+		sessions: map[string]string{},
 	}
 }
 
-func (s *stubSMGR) GetSession(_ context.Context, sessionID string) (Session, error) {
+func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into Session) (found bool, err error) {
 	sess, ok := s.sessions[sessionID]
 	if !ok {
-		return nil, nil
+		return false, nil
 	}
-	return sess, nil
+	if err := jsonpb.UnmarshalString(sess, into); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *stubSMGR) PutSession(_ context.Context, sess Session) error {
 	if sess.GetId() == "" {
 		return fmt.Errorf("session has no ID")
 	}
-	csess := sess.(*corev1beta1.Session)
-	s.sessions[sess.GetId()] = csess
+	strsess, err := (&jsonpb.Marshaler{}).MarshalToString(sess)
+	if err != nil {
+		return err
+	}
+	s.sessions[sess.GetId()] = strsess
 	return nil
 }
 
