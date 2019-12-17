@@ -56,9 +56,39 @@ func TestIDTokenMarshaling(t *testing.T) {
   "iss": "http://issuer"
 }`,
 		},
+		{
+			Name: "complex extra",
+			Token: IDToken{
+				Issuer:   "http://127.0.0.1:62281",
+				Subject:  "CgVmb29pZBIEbW9jaw",
+				Audience: Audience{"testclient"},
+				Expiry:   1576187854,
+				IssuedAt: 1576187824,
+				AuthTime: 1576187824,
+				Extra: map[string]interface{}{
+					"email":    "foo@bar.com",
+					"groups":   []string{"foo", "bar"},
+					"username": "foo",
+				},
+			},
+			WantJSON: `{
+  "aud": "testclient",
+  "auth_time": 1576187824,
+  "email": "foo@bar.com",
+  "exp": 1576187854,
+  "groups": [
+    "foo",
+    "bar"
+  ],
+  "iat": 1576187824,
+  "iss": "http://127.0.0.1:62281",
+  "sub": "CgVmb29pZBIEbW9jaw",
+  "username": "foo"
+}`,
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			jb, err := json.MarshalIndent(&tc.Token, "", "  ")
+			jb, err := json.MarshalIndent(tc.Token, "", "  ")
 			if err != nil {
 				t.Fatalf("Unexpected error marshaling JSON: %v", err)
 			}

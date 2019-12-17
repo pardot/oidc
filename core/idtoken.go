@@ -95,10 +95,10 @@ type IDToken struct {
 	raw json.RawMessage
 }
 
-func (i *IDToken) MarshalJSON() ([]byte, error) {
+func (i IDToken) MarshalJSON() ([]byte, error) {
 	// avoid recursing on this method
 	type ids IDToken
-	id := ids(*i)
+	id := ids(i)
 
 	sj, err := json.Marshal(&id)
 	if err != nil {
