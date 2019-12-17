@@ -118,8 +118,8 @@ func (s *server) token(w http.ResponseWriter, req *http.Request) {
 		idt := tr.PrefillIDToken("http://localhost:8085", "subject", time.Now().Add(5*time.Minute))
 
 		return &core.TokenResponse{
-			AllowRefresh: false,
-			IDToken:      idt,
+			IssueRefreshToken: false,
+			IDToken:           idt,
 		}, nil
 	})
 	if err != nil {

@@ -321,8 +321,12 @@ type TokenRequest struct {
 	// GrantType indicates the grant that was requested for this invocation of
 	// the token endpoint
 	GrantType GrantType
-	// RefreshRequested is true if the offline_access scope was requested.å
-	RefreshRequested bool
+	// SessionRefreshable is true if the offline_access scope was permitted for
+	// the user, i.e this session should issue refresh tokens
+	SessionRefreshable bool
+	// IsRefresh is true if the token endpoint was called with the refresh token
+	// grant (i.e called with a refresh, rather than access token)
+	IsRefresh bool
 
 	authTime *timestamp.Timestamp
 	authReq  *corev1beta1.AuthRequest
@@ -359,8 +363,8 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) IDToke
 // TokenResponse is returned by the token endpoint handler, indicating what it
 // should actually return to the user.
 type TokenResponse struct {
-	// AllowRefresh indicates if we should issue a refresh token.
-	AllowRefresh bool
+	// IssueRefreshToken indicates if we should issue a refresh token.
+	IssueRefreshToken bool
 
 	// IDToken is returned as the id_token for the request to this endpoint. It
 	// is up to the application to store _all_ the desired information in the
@@ -407,10 +411,13 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	var sess *corev1beta1.Session
 	var err error
 
+	var isRefresh bool
+
 	switch req.GrantType {
 	case GrantTypeAuthorizationCode:
 		sess, err = o.fetchCodeSession(ctx, req)
 	case GrantTypeRefreshToken:
+		isRefresh = true
 		sess, err = o.fetchRefreshSession(ctx, req)
 	default:
 		err = &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
@@ -448,8 +455,9 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 			ACR:    sess.Authorization.Acr,
 			AMR:    sess.Authorization.Amr,
 		},
-		GrantType:        req.GrantType,
-		RefreshRequested: strsContains(sess.Scopes, "offline_access"),
+		GrantType:          req.GrantType,
+		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
+		IsRefresh:          isRefresh,
 
 		authTime: sess.Authorization.AuthorizedAt,
 		authReq:  sess.Request,
@@ -478,7 +486,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// If we're allowing refresh, issue one of those too.
 	// do this after, as it'll set a longer expiration on the session
 	var refreshTok string
-	if tresp.AllowRefresh {
+	if tresp.IssueRefreshToken {
 		urefreshtok, srefreshtok, err := newToken(sess.Id, mustTs(tresp.RefreshTokenValidUntil))
 		if err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
@@ -607,6 +615,8 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*co
 	return sess, nil
 }
 
+// UserinfoRequest contains information about this request to the UserInfo
+// endpoint
 type UserinfoRequest struct {
 	// SessionID of the session this request is for.
 	SessionID string
