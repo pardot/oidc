@@ -229,9 +229,9 @@ type Authorization struct {
 	// ACR is the Authentication Context Class Reference the session was
 	// authenticated with
 	ACR string
-	// AMR is the Authentication Methods Reference the session was authenticated
-	// with
-	AMR string
+	// AMR are the Authentication Methods Reference the session was
+	// authenticated with
+	AMR []string
 }
 
 // FinishAuthorization should be called once the consumer has validated the
