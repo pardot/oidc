@@ -1,18 +1,16 @@
-package core
+package idtoken
 
 import (
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/golang/protobuf/ptypes/timestamp"
 )
 
-// IDToken represents the set of JWT claims for the user.
+// Claims represents the set of JWT claims for the user.
 //
-// https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-type IDToken struct {
+// https://openid.net/specs/openid-connect-core-1_0.html#Claims
+type Claims struct {
 	// REQUIRED. Issuer Identifier for the Issuer of the response. The iss value
 	// is a case sensitive URL using the https scheme that contains scheme,
 	// host, and optionally, port number and path components and no query or
@@ -95,9 +93,9 @@ type IDToken struct {
 	raw json.RawMessage
 }
 
-func (i IDToken) MarshalJSON() ([]byte, error) {
+func (i Claims) MarshalJSON() ([]byte, error) {
 	// avoid recursing on this method
-	type ids IDToken
+	type ids Claims
 	id := ids(i)
 
 	sj, err := json.Marshal(&id)
@@ -123,8 +121,8 @@ func (i IDToken) MarshalJSON() ([]byte, error) {
 	return json.Marshal(om)
 }
 
-func (i *IDToken) UnmarshalJSON(b []byte) error {
-	type ids IDToken
+func (i *Claims) UnmarshalJSON(b []byte) error {
+	type ids Claims
 	id := ids{}
 
 	if err := json.Unmarshal(b, &id); err != nil {
@@ -149,13 +147,13 @@ func (i *IDToken) UnmarshalJSON(b []byte) error {
 
 	id.raw = b
 
-	*i = IDToken(id)
+	*i = Claims(id)
 
 	return nil
 }
 
 // Unmarshal unpacks the raw JSON data from this token into the passed type.
-func (i *IDToken) Unmarshal(into interface{}) error {
+func (i *Claims) Unmarshal(into interface{}) error {
 	if i.raw == nil {
 		// gracefully handle the weird case where the user might want to call
 		// this on a struct of their own creation, rather than one retrieved
@@ -223,11 +221,6 @@ type UnixTime int64
 // NewUnixTime creates a UnixTime from the given Time, t
 func NewUnixTime(t time.Time) UnixTime {
 	return UnixTime(t.Unix())
-}
-
-// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
-func newUnixTimeProto(t *timestamp.Timestamp) UnixTime {
-	return UnixTime(t.Seconds)
 }
 
 // Time returns the *time.Time this represents

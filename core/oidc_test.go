@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/pardot/oidc/idtoken"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
@@ -262,7 +263,7 @@ func TestIDTokenPrefill(t *testing.T) {
 	for _, tc := range []struct {
 		Name string
 		TReq TokenRequest
-		Want IDToken
+		Want idtoken.Claims
 	}{
 		{
 			Name: "Fields filled",
@@ -281,10 +282,10 @@ func TestIDTokenPrefill(t *testing.T) {
 
 				now: nowFn,
 			},
-			Want: IDToken{
+			Want: idtoken.Claims{
 				Issuer:   "issuer",
 				Subject:  "subject",
-				Audience: Audience{"client"},
+				Audience: idtoken.Audience{"client"},
 				Expiry:   1574686451,
 				IssuedAt: 1574686451,
 				AuthTime: 1574686451,
@@ -297,7 +298,7 @@ func TestIDTokenPrefill(t *testing.T) {
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			tok := tc.TReq.PrefillIDToken("issuer", "subject", now)
-			if diff := cmp.Diff(tc.Want, tok, cmpopts.IgnoreUnexported(IDToken{})); diff != "" {
+			if diff := cmp.Diff(tc.Want, tok, cmpopts.IgnoreUnexported(idtoken.Claims{})); diff != "" {
 				t.Error(diff)
 			}
 		})

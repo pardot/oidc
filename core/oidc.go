@@ -15,6 +15,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/pardot/oidc/idtoken"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -346,15 +347,15 @@ type TokenRequest struct {
 // * Issued At (iat) time set
 // * Auth Time (auth_time) time set
 // * Nonce that was originally passed in, if there was one
-func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) IDToken {
-	return IDToken{
+func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) idtoken.Claims {
+	return idtoken.Claims{
 		Issuer:   iss,
 		Subject:  sub,
-		Expiry:   NewUnixTime(expires),
-		Audience: Audience{t.ClientID},
+		Expiry:   idtoken.NewUnixTime(expires),
+		Audience: idtoken.Audience{t.ClientID},
 		ACR:      t.Authorization.ACR,
 		AMR:      t.Authorization.AMR,
-		IssuedAt: NewUnixTime(t.now()),
+		IssuedAt: idtoken.NewUnixTime(t.now()),
 		AuthTime: newUnixTimeProto(t.authTime),
 		Nonce:    t.authReq.Nonce,
 		Extra:    map[string]interface{}{},
@@ -371,7 +372,7 @@ type TokenResponse struct {
 	// is up to the application to store _all_ the desired information in the
 	// token correctly, and to obey the OIDC spec. The handler will make no
 	// changes to this token.
-	IDToken IDToken
+	IDToken idtoken.Claims
 
 	// AccessTokenValidUntil indicates how long the returned authorization token
 	// should be valid for.
@@ -726,4 +727,9 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*core
 		return nil, nil
 	}
 	return sess, nil
+}
+
+// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
+func newUnixTimeProto(t *timestamp.Timestamp) idtoken.UnixTime {
+	return idtoken.UnixTime(t.Seconds)
 }
