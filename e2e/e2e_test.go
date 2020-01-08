@@ -1,16 +1,21 @@
-package core
+package e2e
 
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/pardot/oidc/core"
+	"github.com/pardot/oidc/signer"
 	"golang.org/x/oauth2"
+	"gopkg.in/square/go-jose.v2"
 )
 
 func TestE2E(t *testing.T) {
@@ -60,24 +65,23 @@ func TestE2E(t *testing.T) {
 			}))
 			defer cliSvr.Close()
 
-			oidc := &OIDC{
-				clients: &stubCS{
-					validClients: map[string]csClient{
-						clientID: csClient{
-							Secret:      clientSecret,
-							RedirectURI: cliSvr.URL,
-						},
+			cfg := &core.Config{
+				AuthValidityTime: 1 * time.Minute,
+				CodeValidityTime: 1 * time.Minute,
+			}
+			smgr := newStubSMGR()
+			clientSource := &stubCS{
+				ValidClients: map[string]csClient{
+					clientID: csClient{
+						Secret:      clientSecret,
+						RedirectURI: cliSvr.URL,
 					},
 				},
+			}
 
-				authValidityTime: 1 * time.Minute,
-				codeValidityTime: 1 * time.Minute,
-
-				smgr:   newStubSMGR(),
-				signer: testSigner,
-
-				now:   time.Now,
-				tsnow: ptypes.TimestampNow,
+			oidc, err := core.New(cfg, smgr, clientSource, testSigner)
+			if err != nil {
+				t.Fatal(err)
 			}
 
 			mux := http.NewServeMux()
@@ -91,14 +95,14 @@ func TestE2E(t *testing.T) {
 				}
 
 				// just finish it straight away
-				if err := oidc.FinishAuthorization(w, req, ar.SessionID, &Authorization{}); err != nil {
+				if err := oidc.FinishAuthorization(w, req, ar.SessionID, &core.Authorization{}); err != nil {
 					t.Fatalf("error finishing authorization: %v", err)
 				}
 			})
 
 			mux.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
-				err := oidc.Token(w, req, func(tr *TokenRequest) (*TokenResponse, error) {
-					return &TokenResponse{}, nil
+				err := oidc.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
+					return &core.TokenResponse{}, nil
 				})
 				if err != nil {
 					t.Errorf("error in token endpoint: %v", err)
@@ -159,4 +163,103 @@ func randomStateValue() string {
 	}
 
 	return base64.RawStdEncoding.EncodeToString(b)
+}
+
+// contains helpers used by multiple tests
+
+type csClient struct {
+	Secret      string
+	RedirectURI string
+}
+
+type stubCS struct {
+	ValidClients map[string]csClient
+}
+
+func (s *stubCS) IsValidClientID(clientID string) (ok bool, err error) {
+	_, ok = s.ValidClients[clientID]
+	return ok, nil
+}
+
+func (s *stubCS) IsUnauthenticatedClient(clientID string) (ok bool, err error) {
+	return false, nil
+}
+
+func (s *stubCS) ValidateClientSecret(clientID, clientSecret string) (ok bool, err error) {
+	cl, ok := s.ValidClients[clientID]
+	return ok && clientSecret == cl.Secret, nil
+}
+
+func (s *stubCS) ValidateClientRedirectURI(clientID, redirectURI string) (ok bool, err error) {
+	cl, ok := s.ValidClients[clientID]
+	return ok && redirectURI == cl.RedirectURI, nil
+}
+
+type stubSMGR struct {
+	// sessions maps JSON session objects by their ID
+	// JSON > proto here for better debug output
+	sessions map[string]string
+}
+
+func newStubSMGR() *stubSMGR {
+	return &stubSMGR{
+		sessions: map[string]string{},
+	}
+}
+
+func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into core.Session) (found bool, err error) {
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false, nil
+	}
+	if err := jsonpb.UnmarshalString(sess, into); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *stubSMGR) PutSession(_ context.Context, sess core.Session) error {
+	if sess.GetId() == "" {
+		return fmt.Errorf("session has no ID")
+	}
+	strsess, err := (&jsonpb.Marshaler{}).MarshalToString(sess)
+	if err != nil {
+		return err
+	}
+	s.sessions[sess.GetId()] = strsess
+	return nil
+}
+
+func (s *stubSMGR) DeleteSession(ctx context.Context, sessionID string) error {
+	delete(s.sessions, sessionID)
+	return nil
+}
+
+var testSigner = func() core.Signer {
+	key := mustGenRSAKey(512)
+
+	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: &jose.JSONWebKey{
+		Key:   key,
+		KeyID: "testkey",
+	}}
+
+	verificationKeys := []jose.JSONWebKey{
+		{
+			Key:       key.Public(),
+			KeyID:     "testkey",
+			Algorithm: "RS256",
+			Use:       "sig",
+		},
+	}
+
+	return signer.NewStatic(signingKey, verificationKeys)
+}()
+
+func mustGenRSAKey(bits int) *rsa.PrivateKey {
+	key, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		panic(err)
+	}
+
+	return key
 }
