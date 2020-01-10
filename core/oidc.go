@@ -215,12 +215,15 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 		return nil, writeAuthError(w, req, redir, authErrorCodeErrServerError, authreq.State, "failed to persist session", err)
 	}
 
-	return &AuthorizationRequest{
+	areq := &AuthorizationRequest{
 		SessionID: sess.Id,
-		ACRValues: strings.Split(authreq.Raw.Get("acr_values"), " "),
 		Scopes:    authreq.Scopes,
 		ClientID:  authreq.ClientID,
-	}, nil
+	}
+	if authreq.Raw.Get("acr_values") != "" {
+		areq.ACRValues = strings.Split(authreq.Raw.Get("acr_values"), " ")
+	}
+	return areq, nil
 }
 
 // Authorization tracks the information a session was actually authorized for
