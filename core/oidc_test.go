@@ -17,12 +17,6 @@ import (
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
-func TestStartAuthorizationClientErrors(t *testing.T) {
-	// this is kinda a special case, in that we should _never_ redirect people
-	// to a provided redirection endpoint unless it's valid for a valid client
-	// ID. Add a special case for this
-}
-
 func TestStartAuthorization(t *testing.T) {
 	const (
 		clientID     = "client-id"
@@ -67,13 +61,17 @@ func TestStartAuthorization(t *testing.T) {
 			WantHTTPStatus:       400,
 		},
 		{
-			Name: "Valid request is parsed",
+			Name: "Valid request is parsed correctly",
 			Query: url.Values{
 				"client_id":     []string{clientID},
 				"response_type": []string{"code"},
 				"redirect_uri":  []string{redirectURI},
 			},
 			CheckResponse: func(t *testing.T, smgr SessionManager, areq *AuthorizationRequest) {
+				if len(areq.ACRValues) > 0 {
+					t.Errorf("want 0 acr_values, got: %d", len(areq.ACRValues))
+				}
+
 				sess, err := getSession(context.Background(), smgr, areq.SessionID)
 				if err != nil {
 					t.Errorf("should be able to get the session, got error: %v", err)
@@ -83,6 +81,23 @@ func TestStartAuthorization(t *testing.T) {
 				}
 				if sess.Request == nil {
 					t.Error("request in session should not be nil")
+				}
+			},
+		},
+		{
+			Name: "ACR values correctly parsed",
+			Query: url.Values{
+				"client_id":     []string{clientID},
+				"response_type": []string{"code"},
+				"redirect_uri":  []string{redirectURI},
+				"acr_values":    []string{"mfa smfa"},
+			},
+			CheckResponse: func(t *testing.T, smgr SessionManager, areq *AuthorizationRequest) {
+				if len(areq.ACRValues) != 2 {
+					t.Errorf("want 2 acr_values, got: %d", len(areq.ACRValues))
+				}
+				if diff := cmp.Diff([]string{"mfa", "smfa"}, areq.ACRValues); diff != "" {
+					t.Error(diff)
 				}
 			},
 		},
