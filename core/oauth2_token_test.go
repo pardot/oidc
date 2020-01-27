@@ -99,6 +99,26 @@ func TestParseToken(t *testing.T) {
 			WantErr:     true,
 			WantErrCode: tokenErrorCodeInvalidRequest,
 		},
+		{
+			Name: "Escaped basic auth creds", // https://tools.ietf.org/html/rfc6749#section-2.3.1
+			Req: func() *http.Request {
+				req := queryReq(map[string]string{
+					"code":         "acode",
+					"redirect_uri": "https://redirect",
+					"grant_type":   "authorization_code",
+				})()
+
+				req.SetBasicAuth(url.QueryEscape("cl#i$nt"), url.QueryEscape("sec=ret%"))
+				return req
+			},
+			Want: &tokenRequest{
+				GrantType:    GrantTypeAuthorizationCode,
+				Code:         "acode",
+				RedirectURI:  "https://redirect",
+				ClientID:     "cl#i$nt",
+				ClientSecret: "sec=ret%",
+			},
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			resp, err := parseTokenRequest(tc.Req())
