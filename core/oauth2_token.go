@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -42,8 +43,16 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 	// https://tools.ietf.org/html/rfc6749#section-2.3
 	cid, cs, isBasic := req.BasicAuth()
 	if isBasic {
-		tr.ClientID = cid
-		tr.ClientSecret = cs
+		var err error
+		tr.ClientID, err = url.QueryUnescape(cid)
+		if err != nil {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid encoding for client id"}
+		}
+		tr.ClientSecret, err = url.QueryUnescape(cs)
+		if err != nil {
+			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid encoding for client secret"}
+		}
+
 	} else {
 		tr.ClientID = req.FormValue("client_id")
 		tr.ClientSecret = req.FormValue("client_secret")
