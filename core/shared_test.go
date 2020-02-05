@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/golang/protobuf/jsonpb"
@@ -51,6 +52,18 @@ func newStubSMGR() *stubSMGR {
 	return &stubSMGR{
 		sessions: map[string]string{},
 	}
+}
+
+func (s *stubSMGR) NewID() string {
+	return mustGenerateID()
+}
+
+func mustGenerateID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Errorf("can't create ID, rand.Read failed: %w", err))
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into Session) (found bool, err error) {
