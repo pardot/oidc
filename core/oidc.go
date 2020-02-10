@@ -2,8 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +34,9 @@ type Session interface {
 // SessionManager is used to track the state of the session across it's
 // lifecycle.
 type SessionManager interface {
+	// NewID should return a new, unique identifier to be used for a session. It
+	// should be hard to guess/brute force
+	NewID() string
 	// GetSession should return the current session state for the given session
 	// ID. It should be deserialized/written in to into. If the session does not
 	// exist, found should be false with no error.
@@ -205,7 +206,7 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 	}
 
 	sess := &corev1beta1.Session{
-		Id:        mustGenerateID(),
+		Id:        o.smgr.NewID(),
 		Stage:     corev1beta1.Session_REQUESTED,
 		ClientId:  authreq.ClientID,
 		Request:   ar,
@@ -216,12 +217,15 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 		return nil, writeAuthError(w, req, redir, authErrorCodeErrServerError, authreq.State, "failed to persist session", err)
 	}
 
-	return &AuthorizationRequest{
+	areq := &AuthorizationRequest{
 		SessionID: sess.Id,
-		ACRValues: strings.Split(authreq.Raw.Get("acr_values"), " "),
 		Scopes:    authreq.Scopes,
 		ClientID:  authreq.ClientID,
-	}, nil
+	}
+	if authreq.Raw.Get("acr_values") != "" {
+		areq.ACRValues = strings.Split(authreq.Raw.Get("acr_values"), " ")
+	}
+	return areq, nil
 }
 
 // Authorization tracks the information a session was actually authorized for
@@ -696,15 +700,6 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	}
 
 	return nil
-}
-
-// mustGenerateID returns a new, unique identifier. If it can't, it will panic
-func mustGenerateID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Errorf("can't create ID, rand.Read failed: %w", err))
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func strsContains(strs []string, s string) bool {

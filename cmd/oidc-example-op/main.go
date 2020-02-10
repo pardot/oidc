@@ -36,21 +36,17 @@ func main() {
 		Issuer:                iss,
 		AuthorizationEndpoint: iss + "/auth",
 		TokenEndpoint:         iss + "/token",
+		JWKSURI:               iss + "/jwks.json",
 	}
 
-	discoh, err := discovery.NewHandler(
-		md,
-		discovery.WithKeysource(signer, 1*time.Second),
-		discovery.WithCoreDefaults(),
-	)
+	discoh, err := discovery.NewConfigurationHandler(md, discovery.WithCoreDefaults())
 	if err != nil {
 		log.Fatalf("Failed to initialize discovery handler: %v", err)
 	}
+	m.Handle("/.well-known/openid-configuration/", discoh)
 
-	m.Handle(
-		"/.well-known/openid-configuration/",
-		http.StripPrefix("/.well-known/openid-configuration", discoh),
-	)
+	jwksh := discovery.NewKeysHandler(signer, 1*time.Second)
+	m.Handle("/jwks.json", jwksh)
 
 	log.Printf("Listening on: %s", "localhost:8085")
 	err = http.ListenAndServe("localhost:8085", m)

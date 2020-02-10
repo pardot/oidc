@@ -29,6 +29,9 @@ func TestDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	m := http.NewServeMux()
+	ts := httptest.NewServer(m)
+
 	ks := &mockKeysource{
 		keys: []jose.JSONWebKey{
 			{
@@ -40,20 +43,21 @@ func TestDiscovery(t *testing.T) {
 		},
 	}
 
-	m := http.NewServeMux()
-	ts := httptest.NewServer(m)
+	kh := NewKeysHandler(ks, 1*time.Nanosecond)
+	m.Handle("/jwks.json", kh)
 
 	pm := &ProviderMetadata{
 		Issuer:                ts.URL,
+		JWKSURI:               ts.URL + "/jwks.json",
 		AuthorizationEndpoint: "/auth",
 		TokenEndpoint:         "/token",
 	}
 
-	h, err := NewHandler(pm, WithKeysource(ks, 1*time.Nanosecond), WithCoreDefaults())
+	ch, err := NewConfigurationHandler(pm, WithCoreDefaults())
 	if err != nil {
 		t.Fatalf("error creating handler: %v", err)
 	}
-	m.Handle(oidcwk+"/", http.StripPrefix(oidcwk, h))
+	m.Handle(oidcwk, ch)
 
 	cli, err := NewClient(ctx, ts.URL)
 	if err != nil {
