@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,7 +141,7 @@ func (s *mockOIDCServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scope := r.URL.Query().Get("scope")
-	if scope != "openid" {
+	if !strings.Contains(scope, "openid") {
 		http.Error(w, "invalid scope", http.StatusBadRequest)
 		return
 	}
@@ -257,7 +258,7 @@ func (s *mockOIDCServer) handleKeys(w http.ResponseWriter, r *http.Request) {
 
 func TestMiddleware_HappyPath(t *testing.T) {
 	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(fmt.Sprintf("sub: %s", ClaimFromContext(r.Context(), "sub"))))
+		_, _ = w.Write([]byte(fmt.Sprintf("sub: %s", ClaimsFromContext(r.Context()).Subject)))
 	})
 
 	oidcServer, cleanupOIDCServer := startMockOIDCServer(t)
