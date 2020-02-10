@@ -6,15 +6,17 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
+	"github.com/pardot/oidc/client"
 	"github.com/pardot/oidc/core"
+	"github.com/pardot/oidc/discovery"
 	"github.com/pardot/oidc/signer"
-	"golang.org/x/oauth2"
 	"gopkg.in/square/go-jose.v2"
 )
 
@@ -102,28 +104,41 @@ func TestE2E(t *testing.T) {
 
 			mux.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 				err := oidc.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
-					return &core.TokenResponse{}, nil
+					return &core.TokenResponse{
+						IDToken:               tr.PrefillIDToken(oidcSvr.URL, "test-sub", time.Now().Add(1*time.Minute)),
+						AccessTokenValidUntil: time.Now().Add(1 * time.Minute),
+					}, nil
 				})
 				if err != nil {
 					t.Errorf("error in token endpoint: %v", err)
 				}
 			})
 
-			oa2cfg := oauth2.Config{
-				ClientID:     clientID,
-				ClientSecret: clientSecret,
-				RedirectURL:  cliSvr.URL,
+			// discovery endpoint
+			md := &discovery.ProviderMetadata{
+				Issuer:                oidcSvr.URL,
+				AuthorizationEndpoint: oidcSvr.URL + "/authorization",
+				TokenEndpoint:         oidcSvr.URL + "/token",
+				JWKSURI:               oidcSvr.URL + "/jwks.json",
+			}
 
-				Endpoint: oauth2.Endpoint{
-					AuthURL:  oidcSvr.URL + "/authorization",
-					TokenURL: oidcSvr.URL + "/token",
-				},
+			discoh, err := discovery.NewConfigurationHandler(md, discovery.WithCoreDefaults())
+			if err != nil {
+				log.Fatalf("Failed to initialize discovery handler: %v", err)
+			}
+			mux.Handle("/.well-known/openid-configuration/", discoh)
 
-				Scopes: []string{"openid", "offline_access"},
+			jwksh := discovery.NewKeysHandler(testSigner, 1*time.Second)
+			mux.Handle("/jwks.json", jwksh)
+
+			// set up client
+			cl, err := client.DiscoverClient(ctx, oidcSvr.URL, clientID, clientSecret, cliSvr.URL)
+			if err != nil {
+				t.Fatalf("discovering client: %v", err)
 			}
 
 			client := &http.Client{}
-			resp, err := client.Get(oa2cfg.AuthCodeURL(state))
+			resp, err := client.Get(cl.AuthCodeURL(state))
 			if err != nil {
 				t.Fatalf("error getting auth URL: %v", err)
 			}
@@ -136,20 +151,12 @@ func TestE2E(t *testing.T) {
 				t.Fatal("waiting for callback timed out after 1s")
 			}
 
-			oa2Tok, err := oa2cfg.Exchange(ctx, callbackCode)
+			tok, err := cl.Exchange(ctx, callbackCode)
 			if err != nil {
 				t.Fatalf("error exchanging code %q for token: %v", callbackCode, err)
 			}
 
-			rawIDToken, ok := oa2Tok.Extra("id_token").(string)
-			if !ok {
-				t.Fatal("no id_token included in response")
-			}
-
-			_, err = testSigner.VerifySignature(ctx, rawIDToken)
-			if err != nil {
-				t.Errorf("want valid token, verification returned error: %v", err)
-			}
+			t.Logf("claims: %#v", tok.Claims)
 		})
 	}
 }
@@ -207,6 +214,14 @@ func newStubSMGR() *stubSMGR {
 	}
 }
 
+func (s *stubSMGR) NewID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Errorf("can't create ID, rand.Read failed: %w", err))
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
 func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into core.Session) (found bool, err error) {
 	sess, ok := s.sessions[sessionID]
 	if !ok {
@@ -235,7 +250,7 @@ func (s *stubSMGR) DeleteSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-var testSigner = func() core.Signer {
+var testSigner = func() *signer.StaticSigner {
 	key := mustGenRSAKey(512)
 
 	signingKey := jose.SigningKey{Algorithm: jose.RS256, Key: &jose.JSONWebKey{
