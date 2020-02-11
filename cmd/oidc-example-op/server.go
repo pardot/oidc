@@ -83,10 +83,15 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	var amr []string
+	if req.FormValue("amr") != "" {
+		amr = strings.Split(req.FormValue("amr"), ",")
+	}
+
 	auth := &core.Authorization{
 		Scopes: strings.Split(req.FormValue("scopes"), " "),
 		ACR:    req.FormValue("acr"),
-		AMR:    strings.Split(req.FormValue("amr"), ","),
+		AMR:    amr,
 	}
 
 	// We have the session ID. This is stable for the session, so we can track

@@ -46,7 +46,7 @@ func main() {
 		oidccli: cli,
 	}
 
-	log.Printf("Listening on: %s", "localhost:8084")
+	log.Printf("Listening on: %s", "http://localhost:8084")
 	err = http.ListenAndServe("localhost:8084", svr)
 	if err != nil {
 		log.Fatal(err)
