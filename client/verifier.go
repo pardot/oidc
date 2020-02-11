@@ -28,6 +28,15 @@ func DiscoverVerifier(ctx context.Context, issuer string) (*Verifier, error) {
 	}, nil
 }
 
+func NewVerifier(issuer string, keySource KeySource) *Verifier {
+	return &Verifier{
+		md: &discovery.ProviderMetadata{
+			Issuer: issuer,
+		},
+		ks: keySource,
+	}
+}
+
 type verifyCfg struct{}
 
 type VerifyOpt func(v *verifyCfg)
@@ -38,13 +47,11 @@ func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, o
 		return nil, fmt.Errorf("failed parsing raw: %v", err)
 	}
 
-	var kid string
-	for _, h := range tok.Headers {
-		if h.KeyID != "" {
-			kid = h.KeyID
-			break
-		}
+	if len(tok.Headers) != 1 {
+		return nil, fmt.Errorf("header must contain 1 header, found %d", len(tok.Headers))
 	}
+
+	kid := tok.Headers[0].KeyID
 	if kid == "" {
 		return nil, fmt.Errorf("token missing kid header")
 	}
