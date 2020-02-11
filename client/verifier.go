@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/pardot/oidc/discovery"
@@ -66,8 +65,6 @@ func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, o
 	if err := tok.Claims(key, &cl); err != nil {
 		return nil, fmt.Errorf("verifying token claims: %v", err)
 	}
-
-	log.Printf("validate %s against issuer: %s", raw, v.md.Issuer)
 
 	if err := cl.Validate(jwt.Expected{
 		Issuer:   v.md.Issuer,
