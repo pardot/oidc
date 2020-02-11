@@ -2,39 +2,48 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 
-	"github.com/pardot/oidc/discovery"
-	"golang.org/x/oauth2"
+	"github.com/pardot/oidc/client"
+)
+
+const (
+	clientID     = "client-id"
+	clientSecret = "client-secret"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	iss := "http://localhost:8085"
-
-	discoc, err := discovery.NewClient(ctx, iss)
-	if err != nil {
-		log.Fatalf("Failed discovery on issuer: %v", err)
+	cfg := struct {
+		Issuer       string
+		ClientID     string
+		ClientSecret string
+		RedirectURL  string
+	}{
+		Issuer:       "http://localhost:8085",
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  "http://localhost:8084/callback",
 	}
 
-	oa2cfg := oauth2.Config{
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		RedirectURL:  "http://localhost:8084/callback",
+	flag.StringVar(&cfg.Issuer, "issuer", cfg.Issuer, "issuer")
+	flag.StringVar(&cfg.ClientID, "client-id", cfg.ClientID, "client ID")
+	flag.StringVar(&cfg.ClientSecret, "client-secret", cfg.ClientSecret, "client secret")
+	flag.StringVar(&cfg.RedirectURL, "redirect-url", cfg.RedirectURL, "redirect URL")
 
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  discoc.Metadata().AuthorizationEndpoint,
-			TokenURL: discoc.Metadata().TokenEndpoint,
-		},
+	flag.Parse()
 
-		Scopes: []string{"openid"},
+	cli, err := client.DiscoverClient(ctx, cfg.Issuer, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
+	if err != nil {
+		log.Fatalf("failed to discover issuer: %v", err)
 	}
 
 	svr := &server{
-		oa2cfg: &oa2cfg,
+		oidccli: cli,
 	}
 
 	log.Printf("Listening on: %s", "localhost:8084")
