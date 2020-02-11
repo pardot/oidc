@@ -8,14 +8,12 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/pardot/oidc/client"
 	"github.com/pardot/oidc/idtoken"
 )
 
-type claims map[string]interface{}
 type claimsContextKey struct{}
 
 const (
@@ -62,8 +60,6 @@ type Handler struct {
 
 	sessionStore   sessions.Store
 	sessionStoreMu sync.Mutex
-
-	clock func() time.Time
 }
 
 // Wrap returns an http.Handler that wraps the given http.Handler and
@@ -139,42 +135,28 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		return nil, err
 	}
 
-	idToken, err := oidccl.VerifyRaw(ctx, rawIDToken)
+	idToken, err := oidccl.VerifyRaw(ctx, h.ClientID, rawIDToken)
 	if err != nil {
 		// Attempt to refresh the token
 		refreshToken, ok := session.Values[sessionKeyOIDCRefreshToken].(string)
 		if !ok {
 			return nil, nil
 		}
-		_ = refreshToken
 
-		return nil, nil
-		// TODO - implement this
+		oidccl, err := h.getOIDCClient(ctx)
+		if err != nil {
+			return nil, err
+		}
 
-		// o2c, err := h.getOauth2Config()
-		// if err != nil {
-		// 	return nil, err
-		// }
+		token, err := oidccl.TokenSource(ctx, &client.Token{RefreshToken: refreshToken}).Token(ctx)
+		if err != nil {
+			return nil, nil
+		}
 
-		// token, err := o2c.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}).Token()
-		// if err != nil {
-		// 	return nil, nil
-		// }
+		session.Values[sessionKeyOIDCIDToken] = token.RawIDToken
+		session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
 
-		// refreshedRawIDToken, ok := token.Extra("id_token").(string)
-		// if !ok {
-		// 	return nil, nil
-		// }
-
-		// refreshedIDToken, err := verifier.Verify(ctx, refreshedRawIDToken)
-		// if err != nil {
-		// 	return nil, nil
-		// }
-
-		// session.Values[sessionKeyOIDCIDToken] = refreshedRawIDToken
-		// session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
-
-		// idToken = refreshedIDToken
+		idToken = &token.Claims
 	}
 
 	return idToken, nil
