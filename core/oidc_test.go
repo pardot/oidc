@@ -162,7 +162,7 @@ func TestFinishAuthorization(t *testing.T) {
 		Request: &corev1beta1.AuthRequest{
 			RedirectUri:  "https://redir",
 			State:        "state",
-			Scopes:       []string{"ascope"},
+			Scopes:       []string{"openid"},
 			Nonce:        "nonce",
 			ResponseType: corev1beta1.AuthRequest_CODE,
 		},
@@ -252,7 +252,7 @@ func TestFinishAuthorization(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/", nil)
 
-			err := oidc.FinishAuthorization(rec, req, sessID, &Authorization{Scopes: []string{"granted"}})
+			err := oidc.FinishAuthorization(rec, req, sessID, &Authorization{Scopes: []string{"openid"}})
 			checkErrMatcher(t, tc.WantReturnedErrMatch, err)
 
 			if tc.WantHTTPStatus != 0 {
@@ -516,8 +516,8 @@ func TestToken(t *testing.T) {
 		ih := newHandler(t)
 		h := func(req *TokenRequest) (*TokenResponse, error) {
 			r, err := ih(req)
-			r.AccessTokenValidUntil = time.Now().Add(5 * time.Minute)
-			r.RefreshTokenValidUntil = time.Now().Add(10 * time.Minute)
+			r.AccessTokenValidUntil = o.now().Add(5 * time.Minute)
+			r.RefreshTokenValidUntil = o.now().Add(10 * time.Minute)
 			r.IssueRefreshToken = true
 			return r, err
 		}
@@ -569,6 +569,21 @@ func TestToken(t *testing.T) {
 			}
 
 			refreshToken = tresp.RefreshToken
+		}
+
+		// march to the future, when we should be expired
+		o.now = func() time.Time { return time.Now().Add(1 * time.Hour) }
+
+		treq = &tokenRequest{
+			GrantType:    GrantTypeRefreshToken,
+			RefreshToken: refreshToken,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		_, err = o.token(context.Background(), treq, h)
+		if te, ok := err.(*tokenError); !ok || te.Code != tokenErrorCodeInvalidGrant {
+			t.Errorf("expired session should have given invalid_grant, got: %v", te)
 		}
 	})
 }

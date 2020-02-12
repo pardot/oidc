@@ -15,6 +15,8 @@ type cachingTokenSource struct {
 	aud       string
 	scopes    []string
 	acrValues []string
+
+	client *oidc.Client
 }
 
 type TokenSourceOpt func(*cachingTokenSource)
@@ -39,6 +41,15 @@ func WithScopes(scopes []string) TokenSourceOpt {
 func WithACRValues(acrValues []string) TokenSourceOpt {
 	return func(c *cachingTokenSource) {
 		c.acrValues = acrValues
+	}
+}
+
+// WithRefreshClient will add a configured client to the source. This will be
+// used to fetch a new token if the cached token is expired and has a
+// RefreshToken
+func WithRefreshClient(client *oidc.Client) TokenSourceOpt {
+	return func(c *cachingTokenSource) {
+		c.client = client
 	}
 }
 
@@ -75,19 +86,33 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 		return nil, fmt.Errorf("cache get: %v", err)
 	}
 
-	if token != nil && token.Valid() {
-		return token, nil
+	if token != nil {
+		if token.Valid() {
+			return token, nil
+		}
+		// we have an expired token, try and refresh if we can.
+		if token.RefreshToken != "" {
+			rts := c.client.TokenSource(ctx, token)
+			t, err := rts.Token(ctx)
+			// ignore errors here, just let it fail to a new token
+			if err == nil {
+				token = t
+			}
+		}
 	}
 
-	// need a new token, fetch from upstream and cache
-	newToken, err := c.src.Token(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetching new token: %v", err)
+	if token == nil {
+		// if we get here cache and refresh failed, so fetch from upstream
+		t, err := c.src.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("fetching new token: %v", err)
+		}
+		token = t
 	}
 
-	if err := c.cache.Set(c.iss, c.aud, c.scopes, c.acrValues, newToken); err != nil {
+	if err := c.cache.Set(c.iss, c.aud, c.scopes, c.acrValues, token); err != nil {
 		return nil, fmt.Errorf("updating cache: %v", err)
 	}
 
-	return newToken, nil
+	return token, nil
 }

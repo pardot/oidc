@@ -440,12 +440,17 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	case GrantTypeRefreshToken:
 		isRefresh = true
 		sess, err = o.fetchRefreshSession(ctx, req)
+
 	default:
 		err = &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
-
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	exp, _ := ptypes.Timestamp(sess.ExpiresAt)
+	if o.now().After(exp) {
+		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	// check to see if we're working with the same client
@@ -492,6 +497,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	if tresp.AccessTokenValidUntil.Before(o.now()) {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "access token must be valid > now"}
+	}
+
+	if tresp.IssueRefreshToken && tresp.RefreshTokenValidUntil.Before(o.now()) {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "refresh token must be valid > now"}
 	}
 
 	// create a new access token

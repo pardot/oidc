@@ -48,7 +48,7 @@ func main() {
 		log.Fatalf("getting cli token source: %v", err)
 	}
 
-	ts := tokencache.TokenSource(clis, cfg.Issuer, cfg.ClientID)
+	ts := tokencache.TokenSource(clis, cfg.Issuer, cfg.ClientID, tokencache.WithRefreshClient(client))
 
 	tok, err := ts.Token(ctx)
 	if err != nil {
