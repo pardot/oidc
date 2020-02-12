@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pardot/oidc/discovery"
@@ -26,17 +27,29 @@ type Client struct {
 	ks KeySource
 
 	o2cfg oauth2.Config
+
+	acrValues  []string
+	enforceAcr bool
 }
 
 // ClientOpt can be used to customize the client
 // nolint:golint
 type ClientOpt func(*Client)
 
-// WithScopes will set the given scopes on all AuthCode requests. This will
-// override the default of "openid".
-func WithScopes(scopes []string) ClientOpt {
+// WithAdditionalScopes will set the given scopes on all AuthCode requests. This is in addition to the default "openid" scopes
+func WithAdditionalScopes(scopes []string) ClientOpt {
 	return func(c *Client) {
-		c.o2cfg.Scopes = scopes
+		c.o2cfg.Scopes = append([]string{"openid"}, scopes...)
+	}
+}
+
+// WithACRValues sets the ACR values to request. If enforce is true, the
+// resultant ID token will be checked to make sure it matches one of the
+// requested values, and an error will be returned if it doesn't
+func WithACRValues(acrValues []string, enforce bool) ClientOpt {
+	return func(c *Client) {
+		c.acrValues = acrValues
+		c.enforceAcr = enforce
 	}
 }
 
@@ -72,14 +85,48 @@ func DiscoverClient(ctx context.Context, issuer, clientID, clientSecret, redirec
 	return c, nil
 }
 
-type authCodeCfg struct{}
+type authCodeCfg struct {
+	redirectURL string
+	nonce       string
+}
 
+// AuthCodeOption can be used to modify the auth code URL that is generated.
 type AuthCodeOption func(*authCodeCfg)
+
+// SetRedirectURL overrides the base redirect URL for this request
+func SetRedirectURL(redir string) AuthCodeOption {
+	return func(cfg *authCodeCfg) {
+		cfg.redirectURL = redir
+	}
+}
+
+// SetNonce sets the nonce for this request
+func SetNonce(nonce string) AuthCodeOption {
+	return func(cfg *authCodeCfg) {
+		cfg.nonce = nonce
+	}
+}
 
 // AuthCodeURL returns the URL the user should be directed to to initiate the
 // code auth flow.
 func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
-	return c.o2cfg.AuthCodeURL(state)
+	accfg := &authCodeCfg{}
+	for _, o := range opts {
+		o(accfg)
+	}
+
+	oc := c.o2cfg
+	aopts := []oauth2.AuthCodeOption{}
+
+	if accfg.redirectURL != "" {
+		oc.RedirectURL = accfg.redirectURL
+	}
+
+	if len(c.acrValues) > 0 {
+		aopts = append(aopts, oauth2.SetAuthURLParam("acr_values", strings.Join(c.acrValues, " ")))
+	}
+
+	return oc.AuthCodeURL(state, aopts...)
 }
 
 // Token encapsulates the data returned from the token endpoint
@@ -89,6 +136,14 @@ type Token struct {
 	Expiry       time.Time `json:"expiry,omitempty"`
 	Claims       Claims    `json:"claims,omitempty"`
 	IDToken      string    `json:"id_token,omitempty"`
+}
+
+// Valid if it contains an ID token, and the token's claims are in their
+// validity period.
+func (t *Token) Valid() bool {
+	// TODO - nbf claim?
+	return t.Claims.Expiry.Time().After(time.Now()) &&
+		t.IDToken != ""
 }
 
 // Exchange the returned code for a set of tokens
@@ -111,6 +166,18 @@ func (c *Client) oauth2Token(ctx context.Context, t *oauth2.Token) (*Token, erro
 	cl, err := c.VerifyRaw(ctx, c.o2cfg.ClientID, raw)
 	if err != nil {
 		return nil, fmt.Errorf("verifying token: %v", err)
+	}
+
+	if c.enforceAcr {
+		var found bool
+		for _, acr := range c.acrValues {
+			if cl.ACR != "" && cl.ACR == acr {
+				found = true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("want one of ACR %v, got %s", c.acrValues, cl.ACR)
+		}
 	}
 
 	return &Token{

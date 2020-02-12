@@ -11,14 +11,11 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pardot/oidc"
-	"github.com/pardot/oidc/tokencache"
 	"github.com/pkg/errors"
-	"golang.org/x/oauth2"
 )
 
 // Templates
@@ -59,36 +56,34 @@ const (
 type LocalOIDCTokenSource struct {
 	sync.Mutex
 
-	endpoint     oauth2.Endpoint
-	clientID     string
-	clientSecret string
+	client *oidc.Client
 
-	credentialCache tokencache.CredentialCache
-	opener          Opener
+	opener Opener
 
-	additionalScopes []string
-	acrValues        []string
-	nonceGenerator   func(context.Context) (string, error)
+	nonceGenerator func(context.Context) (string, error)
 }
 
 type LocalOIDCTokenSourceOpt func(s *LocalOIDCTokenSource)
 
 var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 
-// NewLocalOIDCTokenSource creates a token source that command line (CLI)
-// programs can use to fetch tokens from an OIDC Provider for use in
-// authenticating clients to other systems (e.g., Kubernetes clusters, Docker
-// registries, etc.)
+// NewSource creates a token source that command line (CLI) programs can use to
+// fetch tokens from an OIDC Provider for use in authenticating clients to other
+// systems (e.g., Kubernetes clusters, Docker registries, etc.). The client
+// should be configured with any scopes/acr values that are required.
+//
+// This will trigger the auth flow each time, in practice the result should be
+// cached.
 //
 // Example:
 //     ctx := context.TODO()
 //
-//     provider, err := oidc.NewProvider(ctx, StagingURL)
+//     client, err := oidc.DiscoverClient(ctx, StagingURL, ClientID, ClientSecret, "")
 //     if err != nil {
 //       // handle err
 //     }
 //
-//     ts, err := NewLocalOIDCTokenSource(provider, clientID, clientSecret)
+//     ts, err := NewLocalOIDCTokenSource(client, clientID, clientSecret)
 //     if err != nil {
 //       // handle err
 //     }
@@ -99,15 +94,11 @@ var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 //     }
 //
 //     // use token
-func NewLocalOIDCTokenSource(endpoint oauth2.Endpoint, clientID string, clientSecret string, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
-	credentialCache := &MemoryWriteThroughCredentialCache{CredentialCache: BestCredentialCache()}
+func NewSource(client *oidc.Client, clientID string, clientSecret string, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
 
 	s := &LocalOIDCTokenSource{
-		endpoint:        endpoint,
-		clientID:        clientID,
-		clientSecret:    clientSecret,
-		credentialCache: credentialCache,
-		opener:          DetectOpener(),
+		client: client,
+		opener: DetectOpener(),
 	}
 
 	for _, opt := range opts {
@@ -117,21 +108,9 @@ func NewLocalOIDCTokenSource(endpoint oauth2.Endpoint, clientID string, clientSe
 	return s, nil
 }
 
-// WithAdditionalScopes requests additional scopes (e.g., groups)
-func WithAdditionalScopes(scopes []string) LocalOIDCTokenSourceOpt {
-	return func(s *LocalOIDCTokenSource) {
-		s.additionalScopes = scopes
-	}
-}
-
-func WithACRValues(acrValues []string) LocalOIDCTokenSourceOpt {
-	return func(s *LocalOIDCTokenSource) {
-		s.acrValues = acrValues
-	}
-}
-
 // WithNonceGenerator specifies a function that generates a nonce. If a nonce
-// generator is present, the credential cache will not be used.
+// generator is present, this token source should not be wrapped in any kind of
+// cache.
 func WithNonceGenerator(generator func(context.Context) (string, error)) LocalOIDCTokenSourceOpt {
 	return func(s *LocalOIDCTokenSource) {
 		s.nonceGenerator = generator
@@ -141,59 +120,6 @@ func WithNonceGenerator(generator func(context.Context) (string, error)) LocalOI
 // Token attempts to a fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
 func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	scopes := []string{"openid", "profile", "email", "offline_access", "federated:id"}
-	scopes = append(scopes, s.additionalScopes...)
-
-	oauth2Config := &oauth2.Config{
-		ClientID:     s.clientID,
-		ClientSecret: s.clientSecret,
-		Endpoint:     s.endpoint,
-		Scopes:       scopes,
-	}
-
-	if s.nonceGenerator == nil {
-		token, err := s.credentialCache.Get(s.endpoint.AuthURL, s.clientID, scopes, s.acrValues)
-		if err != nil {
-			s.debugf("cache get failed: %v", err)
-		} else if token != nil && token.Valid() {
-			// Token is present in cache and valid. Nothing more to do.
-			return token, nil
-		} else if token != nil {
-			// Token is present in cache, but expired. Attempt to refresh
-			// it. Errors are ignored because we want to simply force the
-			// user back through the full authentication flow if a token
-			// can't be refreshed.
-			newToken, _ := oauth2Config.TokenSource(ctx, token).Token()
-			if newToken != nil {
-				if err := s.credentialCache.Set(s.endpoint.AuthURL, s.clientID, scopes, s.acrValues, newToken); err != nil {
-					s.debugf("cache set failed: %v", err)
-				}
-
-				return newToken, nil
-			}
-		}
-	}
-
-	// Token was not present in cache, it could not be refreshed, or we're using
-	// a nonce. Kick off the full auth flow.
-	token, err := s.fetchToken(ctx, oauth2Config)
-	if err != nil {
-		return nil, err
-	}
-
-	if s.nonceGenerator == nil {
-		if err := s.credentialCache.Set(s.endpoint.AuthURL, s.clientID, scopes, s.acrValues, token); err != nil {
-			s.debugf("cache set failed: %v", err)
-		}
-	}
-
-	return token, nil
-}
-
-func (s *LocalOIDCTokenSource) fetchToken(ctx context.Context, oauth2Config *oauth2.Config) (*oauth2.Token, error) {
 	state, err := randomStateValue()
 	if err != nil {
 		return nil, err
@@ -266,9 +192,8 @@ func (s *LocalOIDCTokenSource) fetchToken(ctx context.Context, oauth2Config *oau
 	go func() { _ = httpSrv.Serve(ln) }()
 	defer func() { _ = httpSrv.Shutdown(ctx) }()
 
-	authCodeOpts := []oauth2.AuthCodeOption{}
-	if len(s.acrValues) > 0 {
-		authCodeOpts = append(authCodeOpts, oauth2.SetAuthURLParam("acr_values", strings.Join(s.acrValues, " ")))
+	authCodeOpts := []oidc.AuthCodeOption{
+		oidc.SetRedirectURL(fmt.Sprintf("http://localhost:%d/callback", tcpAddr.Port)),
 	}
 	if s.nonceGenerator != nil {
 		nonce, err := s.nonceGenerator(ctx)
@@ -276,11 +201,12 @@ func (s *LocalOIDCTokenSource) fetchToken(ctx context.Context, oauth2Config *oau
 			return nil, fmt.Errorf("failed to generate nonce: %v", err)
 		}
 
-		authCodeOpts = append(authCodeOpts, oauth2.SetAuthURLParam("nonce", nonce))
+		authCodeOpts = append(authCodeOpts, oidc.SetNonce(nonce))
 	}
 
-	oauth2Config.RedirectURL = fmt.Sprintf("http://localhost:%d/callback", tcpAddr.Port)
-	if err := s.opener.Open(ctx, oauth2Config.AuthCodeURL(state, authCodeOpts...)); err != nil {
+	authURL := s.client.AuthCodeURL(state, authCodeOpts...)
+
+	if err := s.opener.Open(ctx, authURL); err != nil {
 		return nil, errors.Wrap(err, "failed to open URL")
 	}
 
@@ -296,7 +222,7 @@ func (s *LocalOIDCTokenSource) fetchToken(ctx context.Context, oauth2Config *oau
 		return nil, res.err
 	}
 
-	return oauth2Config.Exchange(ctx, res.code)
+	return s.client.Exchange(ctx, res.code)
 }
 
 func (s *LocalOIDCTokenSource) debugf(pattern string, args ...interface{}) {
