@@ -1,4 +1,4 @@
-package core
+package oidc
 
 import (
 	"encoding/json"
@@ -12,12 +12,12 @@ import (
 func TestIDTokenMarshaling(t *testing.T) {
 	for _, tc := range []struct {
 		Name     string
-		Token    IDToken
+		Token    Claims
 		WantJSON string
 	}{
 		{
 			Name: "basic",
-			Token: IDToken{
+			Token: Claims{
 				Issuer:   "http://issuer",
 				Audience: Audience{"aud"},
 				Expiry:   NewUnixTime(mustTime(time.Parse("2006-Jan-02", "2019-Nov-20"))),
@@ -34,7 +34,7 @@ func TestIDTokenMarshaling(t *testing.T) {
 		},
 		{
 			Name: "multiple audiences",
-			Token: IDToken{
+			Token: Claims{
 				Audience: Audience{"aud1", "aud2"},
 			},
 			WantJSON: `{
@@ -46,7 +46,7 @@ func TestIDTokenMarshaling(t *testing.T) {
 		},
 		{
 			Name: "extra shouldn't shadow primary fields",
-			Token: IDToken{
+			Token: Claims{
 				Issuer: "http://issuer",
 				Extra: map[string]interface{}{
 					"iss": "http://bad",
@@ -58,7 +58,7 @@ func TestIDTokenMarshaling(t *testing.T) {
 		},
 		{
 			Name: "complex extra",
-			Token: IDToken{
+			Token: Claims{
 				Issuer:   "http://127.0.0.1:62281",
 				Subject:  "CgVmb29pZBIEbW9jaw",
 				Audience: Audience{"testclient"},
@@ -104,7 +104,7 @@ func TestIDTokenUnmarshaling(t *testing.T) {
 	for _, tc := range []struct {
 		Name      string
 		JSON      string
-		WantToken IDToken
+		WantToken Claims
 	}{
 		{
 			Name: "basic",
@@ -114,7 +114,7 @@ func TestIDTokenUnmarshaling(t *testing.T) {
   "hello": "world",
   "iss": "http://issuer"
 }`,
-			WantToken: IDToken{
+			WantToken: Claims{
 				Issuer:   "http://issuer",
 				Audience: Audience{"aud"},
 				Expiry:   NewUnixTime(mustTime(time.Parse("2006-Jan-02", "2019-Nov-20"))),
@@ -128,18 +128,18 @@ func TestIDTokenUnmarshaling(t *testing.T) {
 			JSON: `{
   "aud": ["aud1", "aud2"]
 }`,
-			WantToken: IDToken{
+			WantToken: Claims{
 				Audience: Audience{"aud1", "aud2"},
 			},
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
-			tok := IDToken{}
+			tok := Claims{}
 			if err := json.Unmarshal([]byte(tc.JSON), &tok); err != nil {
 				t.Fatalf("Unexpected error unmarshaling JSON: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.WantToken, tok, cmpopts.IgnoreUnexported(IDToken{})); diff != "" {
+			if diff := cmp.Diff(tc.WantToken, tok, cmpopts.IgnoreUnexported(Claims{})); diff != "" {
 				t.Error(diff)
 			}
 		})

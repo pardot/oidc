@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/pardot/oidc"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
@@ -161,7 +162,7 @@ func TestFinishAuthorization(t *testing.T) {
 		Request: &corev1beta1.AuthRequest{
 			RedirectUri:  "https://redir",
 			State:        "state",
-			Scopes:       []string{"ascope"},
+			Scopes:       []string{"openid"},
 			Nonce:        "nonce",
 			ResponseType: corev1beta1.AuthRequest_CODE,
 		},
@@ -251,7 +252,7 @@ func TestFinishAuthorization(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/", nil)
 
-			err := oidc.FinishAuthorization(rec, req, sessID, &Authorization{Scopes: []string{"granted"}})
+			err := oidc.FinishAuthorization(rec, req, sessID, &Authorization{Scopes: []string{"openid"}})
 			checkErrMatcher(t, tc.WantReturnedErrMatch, err)
 
 			if tc.WantHTTPStatus != 0 {
@@ -277,7 +278,7 @@ func TestIDTokenPrefill(t *testing.T) {
 	for _, tc := range []struct {
 		Name string
 		TReq TokenRequest
-		Want IDToken
+		Want oidc.Claims
 	}{
 		{
 			Name: "Fields filled",
@@ -296,10 +297,10 @@ func TestIDTokenPrefill(t *testing.T) {
 
 				now: nowFn,
 			},
-			Want: IDToken{
+			Want: oidc.Claims{
 				Issuer:   "issuer",
 				Subject:  "subject",
-				Audience: Audience{"client"},
+				Audience: oidc.Audience{"client"},
 				Expiry:   1574686451,
 				IssuedAt: 1574686451,
 				AuthTime: 1574686451,
@@ -312,7 +313,7 @@ func TestIDTokenPrefill(t *testing.T) {
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			tok := tc.TReq.PrefillIDToken("issuer", "subject", now)
-			if diff := cmp.Diff(tc.Want, tok, cmpopts.IgnoreUnexported(IDToken{})); diff != "" {
+			if diff := cmp.Diff(tc.Want, tok, cmpopts.IgnoreUnexported(oidc.Claims{})); diff != "" {
 				t.Error(diff)
 			}
 		})
@@ -515,8 +516,8 @@ func TestToken(t *testing.T) {
 		ih := newHandler(t)
 		h := func(req *TokenRequest) (*TokenResponse, error) {
 			r, err := ih(req)
-			r.AccessTokenValidUntil = time.Now().Add(5 * time.Minute)
-			r.RefreshTokenValidUntil = time.Now().Add(10 * time.Minute)
+			r.AccessTokenValidUntil = o.now().Add(5 * time.Minute)
+			r.RefreshTokenValidUntil = o.now().Add(10 * time.Minute)
 			r.IssueRefreshToken = true
 			return r, err
 		}
@@ -568,6 +569,21 @@ func TestToken(t *testing.T) {
 			}
 
 			refreshToken = tresp.RefreshToken
+		}
+
+		// march to the future, when we should be expired
+		o.now = func() time.Time { return time.Now().Add(1 * time.Hour) }
+
+		treq = &tokenRequest{
+			GrantType:    GrantTypeRefreshToken,
+			RefreshToken: refreshToken,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		_, err = o.token(context.Background(), treq, h)
+		if te, ok := err.(*tokenError); !ok || te.Code != tokenErrorCodeInvalidGrant {
+			t.Errorf("expired session should have given invalid_grant, got: %v", te)
 		}
 	})
 }

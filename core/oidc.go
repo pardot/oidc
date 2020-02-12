@@ -13,6 +13,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/pardot/oidc"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -261,6 +262,17 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 		return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "session not found in storage")
 	}
 
+	var openidScope bool
+	for _, s := range auth.Scopes {
+		if s == "openid" {
+			openidScope = true
+		}
+	}
+	if !openidScope {
+		return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "openid scope was not granted")
+
+	}
+
 	sess.Authorization = &corev1beta1.Authorization{
 		Scopes:       auth.Scopes,
 		Acr:          auth.ACR,
@@ -350,15 +362,15 @@ type TokenRequest struct {
 // * Issued At (iat) time set
 // * Auth Time (auth_time) time set
 // * Nonce that was originally passed in, if there was one
-func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) IDToken {
-	return IDToken{
+func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.Claims {
+	return oidc.Claims{
 		Issuer:   iss,
 		Subject:  sub,
-		Expiry:   NewUnixTime(expires),
-		Audience: Audience{t.ClientID},
+		Expiry:   oidc.NewUnixTime(expires),
+		Audience: oidc.Audience{t.ClientID},
 		ACR:      t.Authorization.ACR,
 		AMR:      t.Authorization.AMR,
-		IssuedAt: NewUnixTime(t.now()),
+		IssuedAt: oidc.NewUnixTime(t.now()),
 		AuthTime: newUnixTimeProto(t.authTime),
 		Nonce:    t.authReq.Nonce,
 		Extra:    map[string]interface{}{},
@@ -375,7 +387,7 @@ type TokenResponse struct {
 	// is up to the application to store _all_ the desired information in the
 	// token correctly, and to obey the OIDC spec. The handler will make no
 	// changes to this token.
-	IDToken IDToken
+	IDToken oidc.Claims
 
 	// AccessTokenValidUntil indicates how long the returned authorization token
 	// should be valid for.
@@ -388,6 +400,10 @@ type TokenResponse struct {
 // Token is used to handle the access token endpoint for code flow requests.
 // This can handle both the initial access token request, as well as subsequent
 // calls for refreshes.
+//
+// This will always return a response to the user, regardless of success or
+// failure. As such, once returned the called can assume the HTTP request has
+// been dealt with appropriately
 //
 // https://openid.net/specs/openid-connect-core-1_0.html#TokenEndpoint
 // https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokens
@@ -424,12 +440,17 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	case GrantTypeRefreshToken:
 		isRefresh = true
 		sess, err = o.fetchRefreshSession(ctx, req)
+
 	default:
 		err = &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
-
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	exp, _ := ptypes.Timestamp(sess.ExpiresAt)
+	if o.now().After(exp) {
+		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	// check to see if we're working with the same client
@@ -472,6 +493,14 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	tresp, err := handler(tr)
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "handler returned error", Cause: err}
+	}
+
+	if tresp.AccessTokenValidUntil.Before(o.now()) {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "access token must be valid > now"}
+	}
+
+	if tresp.IssueRefreshToken && tresp.RefreshTokenValidUntil.Before(o.now()) {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "refresh token must be valid > now"}
 	}
 
 	// create a new access token
@@ -721,4 +750,9 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*core
 		return nil, nil
 	}
 	return sess, nil
+}
+
+// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
+func newUnixTimeProto(t *timestamp.Timestamp) oidc.UnixTime {
+	return oidc.UnixTime(t.Seconds)
 }

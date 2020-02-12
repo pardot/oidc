@@ -3,13 +3,14 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"sync"
 
 	"net/http"
 
-	"golang.org/x/oauth2"
+	"github.com/pardot/oidc"
 )
 
 const (
@@ -17,7 +18,7 @@ const (
 )
 
 type server struct {
-	oa2cfg   *oauth2.Config
+	oidccli  *oidc.Client
 	mux      *http.ServeMux
 	muxSetup sync.Once
 }
@@ -58,7 +59,7 @@ func (s *server) start(w http.ResponseWriter, req *http.Request) {
 	}
 	http.SetCookie(w, sc)
 
-	http.Redirect(w, req, s.oa2cfg.AuthCodeURL(state), http.StatusSeeOther)
+	http.Redirect(w, req, s.oidccli.AuthCodeURL(state), http.StatusSeeOther)
 }
 
 const callbackPage = `<!DOCTYPE html>
@@ -68,8 +69,9 @@ const callbackPage = `<!DOCTYPE html>
 		<title>LOG IN</title>
 	</head>
 	<body>
-		<div>access_token: {{ .access_token }}</div>
-		<div>id_token: {{ .id_token }}</div>
+		<p>access_token: {{ .access_token }}</p>
+		<p>raw id_token: {{ .id_token }}</p>
+		<p>claims: {{ .claims }}</p>
 	</body>
 </html>`
 
@@ -99,19 +101,22 @@ func (s *server) callback(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	oa2Tok, err := s.oa2cfg.Exchange(req.Context(), code)
+	token, err := s.oidccli.Exchange(req.Context(), code)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("error exchanging code %q for token: %v", code, err), http.StatusInternalServerError)
+		return
 	}
 
-	rawIDToken, ok := oa2Tok.Extra("id_token").(string)
-	if !ok {
-		http.Error(w, "no id_token included in response", http.StatusBadRequest)
+	cljson, err := json.MarshalIndent(token.Claims, "", "  ")
+	if err != nil {
+		http.Error(w, "couldn't serialize claims", http.StatusBadRequest)
+		return
 	}
 
 	tmplData := map[string]interface{}{
-		"access_token": oa2Tok.AccessToken,
-		"id_token":     rawIDToken,
+		"access_token": token.AccessToken,
+		"id_token":     token.IDToken,
+		"claims":       string(cljson),
 	}
 
 	if err := callbackTmpl.Execute(w, tmplData); err != nil {

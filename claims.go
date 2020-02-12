@@ -1,18 +1,16 @@
-package core
+package oidc
 
 import (
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/golang/protobuf/ptypes/timestamp"
 )
 
-// IDToken represents the set of JWT claims for the user.
+// Claims represents the set of JWT claims for the user.
 //
-// https://openid.net/specs/openid-connect-core-1_0.html#IDToken
-type IDToken struct {
+// https://openid.net/specs/openid-connect-core-1_0.html#Claims
+type Claims struct {
 	// REQUIRED. Issuer Identifier for the Issuer of the response. The iss value
 	// is a case sensitive URL using the https scheme that contains scheme,
 	// host, and optionally, port number and path components and no query or
@@ -34,6 +32,13 @@ type IDToken struct {
 	// the value. Implementers MAY provide for some small leeway, usually no
 	// more than a few minutes, to account for clock skew.
 	Expiry UnixTime `json:"exp,omitempty"`
+	// OPTIONAL. The "nbf" (not before) claim identifies the time before which
+	// the JWT MUST NOT be accepted for processing.  The processing of the "nbf"
+	// claim requires that the current date/time MUST be after or equal to the
+	// not-before date/time listed in the "nbf" claim.  Implementers MAY provide
+	// for some small leeway, usually no more than a few minutes, to account for
+	// clock skew.  Its value MUST be a number containing a NumericDate value.
+	NotBefore UnixTime `json:"nbf,omitempty"`
 	// REQUIRED. Time at which the JWT was issued.
 	IssuedAt UnixTime `json:"iat,omitempty"`
 	// Time when the End-User authentication occurred. Its value is a JSON
@@ -95,10 +100,19 @@ type IDToken struct {
 	raw json.RawMessage
 }
 
-func (i IDToken) MarshalJSON() ([]byte, error) {
+func (c Claims) String() string {
+	m, err := json.Marshal(&c)
+	if err != nil {
+		return fmt.Sprintf("sub: %s failed: %v", c.Subject, err)
+	}
+
+	return string(m)
+}
+
+func (c Claims) MarshalJSON() ([]byte, error) {
 	// avoid recursing on this method
-	type ids IDToken
-	id := ids(i)
+	type ids Claims
+	id := ids(c)
 
 	sj, err := json.Marshal(&id)
 	if err != nil {
@@ -112,7 +126,7 @@ func (i IDToken) MarshalJSON() ([]byte, error) {
 
 	om := map[string]interface{}{}
 
-	for k, v := range i.Extra {
+	for k, v := range c.Extra {
 		om[k] = v
 	}
 
@@ -123,8 +137,8 @@ func (i IDToken) MarshalJSON() ([]byte, error) {
 	return json.Marshal(om)
 }
 
-func (i *IDToken) UnmarshalJSON(b []byte) error {
-	type ids IDToken
+func (c *Claims) UnmarshalJSON(b []byte) error {
+	type ids Claims
 	id := ids{}
 
 	if err := json.Unmarshal(b, &id); err != nil {
@@ -149,24 +163,24 @@ func (i *IDToken) UnmarshalJSON(b []byte) error {
 
 	id.raw = b
 
-	*i = IDToken(id)
+	*c = Claims(id)
 
 	return nil
 }
 
 // Unmarshal unpacks the raw JSON data from this token into the passed type.
-func (i *IDToken) Unmarshal(into interface{}) error {
-	if i.raw == nil {
+func (c *Claims) Unmarshal(into interface{}) error {
+	if c.raw == nil {
 		// gracefully handle the weird case where the user might want to call
 		// this on a struct of their own creation, rather than one retrieved
 		// from a remote source
-		b, err := json.Marshal(i)
+		b, err := json.Marshal(c)
 		if err != nil {
 			return err
 		}
-		i.raw = b
+		c.raw = b
 	}
-	return json.Unmarshal(i.raw, into)
+	return json.Unmarshal(c.raw, into)
 }
 
 // Audience represents a OIDC ID Token's Audience field.
@@ -223,11 +237,6 @@ type UnixTime int64
 // NewUnixTime creates a UnixTime from the given Time, t
 func NewUnixTime(t time.Time) UnixTime {
 	return UnixTime(t.Unix())
-}
-
-// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
-func newUnixTimeProto(t *timestamp.Timestamp) UnixTime {
-	return UnixTime(t.Seconds)
 }
 
 // Time returns the *time.Time this represents

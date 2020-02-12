@@ -8,14 +8,11 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"time"
 
-	"github.com/coreos/go-oidc"
 	"github.com/gorilla/sessions"
-	"golang.org/x/oauth2"
+	"github.com/pardot/oidc"
 )
 
-type claims map[string]interface{}
 type claimsContextKey struct{}
 
 const (
@@ -57,13 +54,11 @@ type Handler struct {
 	// name is used.
 	SessionName string
 
-	provider   *oidc.Provider
-	providerMu sync.Mutex
+	oidcClient     *oidc.Client
+	oidcClientInit sync.Once
 
 	sessionStore   sessions.Store
 	sessionStoreMu sync.Mutex
-
-	clock func() time.Time
 }
 
 // Wrap returns an http.Handler that wraps the given http.Handler and
@@ -126,7 +121,7 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 //
 // This function may modify the session if a token is refreshed, so it must be
 // saved afterward.
-func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (claims, error) {
+func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (*oidc.Claims, error) {
 	ctx := r.Context()
 
 	rawIDToken, ok := session.Values[sessionKeyOIDCIDToken].(string)
@@ -134,13 +129,12 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		return nil, nil
 	}
 
-	provider, err := h.getProvider()
+	oidccl, err := h.getOIDCClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	verifier := provider.Verifier(&oidc.Config{ClientID: h.ClientID, Now: h.clock})
-	idToken, err := verifier.Verify(ctx, rawIDToken)
+	idToken, err := oidccl.VerifyRaw(ctx, h.ClientID, rawIDToken)
 	if err != nil {
 		// Attempt to refresh the token
 		refreshToken, ok := session.Values[sessionKeyOIDCRefreshToken].(string)
@@ -148,38 +142,23 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 			return nil, nil
 		}
 
-		o2c, err := h.getOauth2Config()
+		oidccl, err := h.getOIDCClient(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		token, err := o2c.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}).Token()
+		token, err := oidccl.TokenSource(ctx, &oidc.Token{RefreshToken: refreshToken}).Token(ctx)
 		if err != nil {
 			return nil, nil
 		}
 
-		refreshedRawIDToken, ok := token.Extra("id_token").(string)
-		if !ok {
-			return nil, nil
-		}
-
-		refreshedIDToken, err := verifier.Verify(ctx, refreshedRawIDToken)
-		if err != nil {
-			return nil, nil
-		}
-
-		session.Values[sessionKeyOIDCIDToken] = refreshedRawIDToken
+		session.Values[sessionKeyOIDCIDToken] = token.IDToken
 		session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
 
-		idToken = refreshedIDToken
+		idToken = &token.Claims
 	}
 
-	c := make(claims)
-	if err := idToken.Claims(&c); err != nil {
-		return nil, nil
-	}
-
-	return c, nil
+	return idToken, nil
 }
 
 // authenticateCallback returns (returnTo, nil) if the user is authenticated,
@@ -216,38 +195,17 @@ func (h *Handler) authenticateCallback(r *http.Request, session *sessions.Sessio
 		return "", fmt.Errorf("state did not match")
 	}
 
-	provider, err := h.getProvider()
+	oidccl, err := h.getOIDCClient(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	o2c, err := h.getOauth2Config()
+	token, err := oidccl.Exchange(ctx, code)
 	if err != nil {
 		return "", err
 	}
 
-	token, err := o2c.Exchange(ctx, code)
-	if err != nil {
-		return "", err
-	}
-
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		return "", fmt.Errorf("missing id_token")
-	}
-
-	verifier := provider.Verifier(&oidc.Config{ClientID: h.ClientID, Now: h.clock})
-	idToken, err := verifier.Verify(ctx, rawIDToken)
-	if err != nil {
-		return "", err
-	}
-
-	c := make(claims)
-	if err := idToken.Claims(&c); err != nil {
-		return "", err
-	}
-
-	session.Values[sessionKeyOIDCIDToken] = rawIDToken
+	session.Values[sessionKeyOIDCIDToken] = token.IDToken
 	session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
 	delete(session.Values, sessionKeyOIDCState)
 
@@ -261,7 +219,7 @@ func (h *Handler) authenticateCallback(r *http.Request, session *sessions.Sessio
 }
 
 func (h *Handler) startAuthentication(r *http.Request, session *sessions.Session) (string, error) {
-	o2c, err := h.getOauth2Config()
+	oidccl, err := h.getOIDCClient(r.Context())
 	if err != nil {
 		return "", err
 	}
@@ -277,7 +235,7 @@ func (h *Handler) startAuthentication(r *http.Request, session *sessions.Session
 		session.Values[sessionKeyOIDCReturnTo] = r.URL.RequestURI()
 	}
 
-	return o2c.AuthCodeURL(state), nil
+	return oidccl.AuthCodeURL(state), nil
 }
 
 func (h *Handler) getSession(r *http.Request) *sessions.Session {
@@ -306,60 +264,20 @@ func (h *Handler) getSession(r *http.Request) *sessions.Session {
 	return session
 }
 
-func (h *Handler) getProvider() (*oidc.Provider, error) {
-	if h.provider != nil {
-		return h.provider, nil
+func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
+	var initErr error
+	h.oidcClientInit.Do(func() {
+		h.oidcClient, initErr = oidc.DiscoverClient(ctx, h.Issuer, h.ClientID, h.ClientSecret, h.RedirectURL)
+	})
+	if initErr != nil {
+		return nil, initErr
 	}
 
-	h.providerMu.Lock()
-	defer h.providerMu.Unlock()
-
-	// Check again while holding lock
-	if h.provider != nil {
-		return h.provider, nil
-	}
-
-	// The provided context must remain valid for the lifetime of the provider.
-	provider, err := oidc.NewProvider(context.Background(), h.Issuer)
-	if err != nil {
-		return nil, err
-	}
-	h.provider = provider
-
-	return h.provider, nil
+	return h.oidcClient, nil
 }
 
-func (h *Handler) getOauth2Config() (*oauth2.Config, error) {
-	provider, err := h.getProvider()
-	if err != nil {
-		return nil, err
-	}
-
-	scopes := []string{oidc.ScopeOpenID}
-	if len(h.Scopes) > 0 {
-		scopes = h.Scopes
-	}
-
-	return &oauth2.Config{
-		ClientID:     h.ClientID,
-		ClientSecret: h.ClientSecret,
-		Endpoint:     provider.Endpoint(),
-		RedirectURL:  h.RedirectURL,
-		Scopes:       scopes,
-	}, nil
-}
-
-func ClaimFromContext(ctx context.Context, claim string) interface{} {
-	c, ok := ctx.Value(claimsContextKey{}).(claims)
-	if !ok {
-		return nil
-	}
-
-	return c[claim]
-}
-
-func ClaimsFromContext(ctx context.Context) map[string]interface{} {
-	c, ok := ctx.Value(claimsContextKey{}).(claims)
+func ClaimsFromContext(ctx context.Context) *oidc.Claims {
+	c, ok := ctx.Value(claimsContextKey{}).(*oidc.Claims)
 	if !ok {
 		return nil
 	}

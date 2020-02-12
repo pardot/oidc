@@ -19,10 +19,12 @@ const (
 )
 
 type server struct {
-	oidc     *core.OIDC
-	mux      *http.ServeMux
-	muxSetup sync.Once
-	storage  *storage
+	oidc            *core.OIDC
+	mux             *http.ServeMux
+	muxSetup        sync.Once
+	storage         *storage
+	tokenValidFor   time.Duration
+	refreshValidFor time.Duration
 }
 
 const loginPage = `<!DOCTYPE html>
@@ -35,7 +37,7 @@ const loginPage = `<!DOCTYPE html>
 		<h1>Log in to IDP</h1>
 		<form action="/finish" method="POST">
 			<p>Subject: <input type="text" name="subject" value="auser" required size="15"></p>
-			<p>Granted Scopes (space delimited): <input type="text" name="scopes" value="{{ .acr }}" size="15"></p>
+			<p>Granted Scopes (space delimited): <input type="text" name="scopes" value="{{ .scopes }}" size="15"></p>
 			<p>ACR: <input type="text" name="acr" size="15"></p>
 			<p>AMR (comma delimited): <input type="text" name="amr" value="{{ .amr }}" size="15"></p>
 			<p>Userinfo: <textarea name="userinfo" rows="10" cols="30">{"name": "A User"}</textarea></p>
@@ -49,7 +51,6 @@ var loginTmpl = template.Must(template.New("loginPage").Parse(loginPage))
 func (s *server) authorization(w http.ResponseWriter, req *http.Request) {
 	ar, err := s.oidc.StartAuthorization(w, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error starting authorization flow: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -83,10 +84,15 @@ func (s *server) finishAuthorization(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	var amr []string
+	if req.FormValue("amr") != "" {
+		amr = strings.Split(req.FormValue("amr"), ",")
+	}
+
 	auth := &core.Authorization{
 		Scopes: strings.Split(req.FormValue("scopes"), " "),
 		ACR:    req.FormValue("acr"),
-		AMR:    strings.Split(req.FormValue("amr"), ","),
+		AMR:    amr,
 	}
 
 	// We have the session ID. This is stable for the session, so we can track
@@ -115,15 +121,17 @@ func (s *server) token(w http.ResponseWriter, req *http.Request) {
 		meta := s.storage.sessions[tr.SessionID].Meta
 		s.storage.sessions[tr.SessionID].Meta = meta
 
-		idt := tr.PrefillIDToken("http://localhost:8085", "subject", time.Now().Add(5*time.Minute))
+		idt := tr.PrefillIDToken("http://localhost:8085", "subject", time.Now().Add(s.tokenValidFor))
 
 		return &core.TokenResponse{
-			IssueRefreshToken: false,
-			IDToken:           idt,
+			AccessTokenValidUntil:  time.Now().Add(s.tokenValidFor),
+			RefreshTokenValidUntil: time.Now().Add(s.refreshValidFor),
+			IssueRefreshToken:      tr.SessionRefreshable, // always allow it if we want it
+			IDToken:                idt,
 		}, nil
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error in token endpoint: %v", err), http.StatusInternalServerError)
+		log.Printf("error in token endpoint: %v", err)
 	}
 }
 
