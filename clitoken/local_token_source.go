@@ -118,6 +118,9 @@ func WithNonceGenerator(generator func(context.Context) (string, error)) LocalOI
 // Token attempts to a fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
 func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
+	s.Lock()
+	defer s.Unlock()
+
 	state, err := randomStateValue()
 	if err != nil {
 		return nil, err
