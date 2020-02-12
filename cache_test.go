@@ -1,4 +1,4 @@
-package cli
+package oidc
 
 import (
 	"io/ioutil"

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
-	"github.com/pardot/oidc/client"
+	"github.com/pardot/oidc"
 	"github.com/pardot/oidc/core"
 	"github.com/pardot/oidc/discovery"
 	"github.com/pardot/oidc/signer"
@@ -81,7 +81,7 @@ func TestE2E(t *testing.T) {
 				},
 			}
 
-			oidc, err := core.New(cfg, smgr, clientSource, testSigner)
+			oidcHandlers, err := core.New(cfg, smgr, clientSource, testSigner)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,19 +91,19 @@ func TestE2E(t *testing.T) {
 			defer oidcSvr.Close()
 
 			mux.HandleFunc("/authorization", func(w http.ResponseWriter, req *http.Request) {
-				ar, err := oidc.StartAuthorization(w, req)
+				ar, err := oidcHandlers.StartAuthorization(w, req)
 				if err != nil {
 					t.Fatalf("error starting authorization flow: %v", err)
 				}
 
 				// just finish it straight away
-				if err := oidc.FinishAuthorization(w, req, ar.SessionID, &core.Authorization{}); err != nil {
+				if err := oidcHandlers.FinishAuthorization(w, req, ar.SessionID, &core.Authorization{}); err != nil {
 					t.Fatalf("error finishing authorization: %v", err)
 				}
 			})
 
 			mux.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
-				err := oidc.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
+				err := oidcHandlers.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
 					return &core.TokenResponse{
 						IDToken:               tr.PrefillIDToken(oidcSvr.URL, "test-sub", time.Now().Add(1*time.Minute)),
 						AccessTokenValidUntil: time.Now().Add(1 * time.Minute),
@@ -132,7 +132,7 @@ func TestE2E(t *testing.T) {
 			mux.Handle("/jwks.json", jwksh)
 
 			// set up client
-			cl, err := client.DiscoverClient(ctx, oidcSvr.URL, clientID, clientSecret, cliSvr.URL)
+			cl, err := oidc.DiscoverClient(ctx, oidcSvr.URL, clientID, clientSecret, cliSvr.URL)
 			if err != nil {
 				t.Fatalf("discovering client: %v", err)
 			}

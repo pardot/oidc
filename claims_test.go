@@ -1,4 +1,4 @@
-package idtoken
+package oidc
 
 import (
 	"encoding/json"

@@ -10,8 +10,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/sessions"
-	"github.com/pardot/oidc/client"
-	"github.com/pardot/oidc/idtoken"
+	"github.com/pardot/oidc"
 )
 
 type claimsContextKey struct{}
@@ -55,7 +54,7 @@ type Handler struct {
 	// name is used.
 	SessionName string
 
-	oidcClient     *client.Client
+	oidcClient     *oidc.Client
 	oidcClientInit sync.Once
 
 	sessionStore   sessions.Store
@@ -122,7 +121,7 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 //
 // This function may modify the session if a token is refreshed, so it must be
 // saved afterward.
-func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (*idtoken.Claims, error) {
+func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (*oidc.Claims, error) {
 	ctx := r.Context()
 
 	rawIDToken, ok := session.Values[sessionKeyOIDCIDToken].(string)
@@ -148,7 +147,7 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 			return nil, err
 		}
 
-		token, err := oidccl.TokenSource(ctx, &client.Token{RefreshToken: refreshToken}).Token(ctx)
+		token, err := oidccl.TokenSource(ctx, &oidc.Token{RefreshToken: refreshToken}).Token(ctx)
 		if err != nil {
 			return nil, nil
 		}
@@ -265,10 +264,10 @@ func (h *Handler) getSession(r *http.Request) *sessions.Session {
 	return session
 }
 
-func (h *Handler) getOIDCClient(ctx context.Context) (*client.Client, error) {
+func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
 	var initErr error
 	h.oidcClientInit.Do(func() {
-		h.oidcClient, initErr = client.DiscoverClient(ctx, h.Issuer, h.ClientID, h.ClientSecret, h.RedirectURL)
+		h.oidcClient, initErr = oidc.DiscoverClient(ctx, h.Issuer, h.ClientID, h.ClientSecret, h.RedirectURL)
 	})
 	if initErr != nil {
 		return nil, initErr
@@ -277,8 +276,8 @@ func (h *Handler) getOIDCClient(ctx context.Context) (*client.Client, error) {
 	return h.oidcClient, nil
 }
 
-func ClaimsFromContext(ctx context.Context) *idtoken.Claims {
-	c, ok := ctx.Value(claimsContextKey{}).(*idtoken.Claims)
+func ClaimsFromContext(ctx context.Context) *oidc.Claims {
+	c, ok := ctx.Value(claimsContextKey{}).(*oidc.Claims)
 	if !ok {
 		return nil
 	}

@@ -1,4 +1,4 @@
-package client
+package oidc
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pardot/oidc/discovery"
-	"github.com/pardot/oidc/idtoken"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
 
@@ -40,7 +39,7 @@ type verifyCfg struct{}
 
 type VerifyOpt func(v *verifyCfg)
 
-func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, opts ...VerifyOpt) (*idtoken.Claims, error) {
+func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, opts ...VerifyOpt) (*Claims, error) {
 	tok, err := jwt.ParseSigned(raw)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing raw: %v", err)
@@ -75,7 +74,7 @@ func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, o
 	}
 
 	// now parse it in to our type to return
-	idt := idtoken.Claims{}
+	idt := Claims{}
 	if err := tok.Claims(key, &idt); err != nil {
 		return nil, fmt.Errorf("verifying token claims: %v", err)
 	}

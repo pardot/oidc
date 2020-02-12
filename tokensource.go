@@ -1,4 +1,4 @@
-package client
+package oidc
 
 import "context"
 

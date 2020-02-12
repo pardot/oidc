@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/pardot/oidc/client"
+	"github.com/pardot/oidc"
 )
 
 const (
@@ -37,7 +37,7 @@ func main() {
 
 	flag.Parse()
 
-	cli, err := client.DiscoverClient(ctx, cfg.Issuer, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
+	cli, err := oidc.DiscoverClient(ctx, cfg.Issuer, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
 	if err != nil {
 		log.Fatalf("failed to discover issuer: %v", err)
 	}

@@ -1,4 +1,4 @@
-package client
+package oidc
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pardot/oidc/discovery"
-	"github.com/pardot/oidc/idtoken"
 	"golang.org/x/oauth2"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -88,7 +87,7 @@ type Token struct {
 	AccessToken  string
 	RefreshToken string
 	Expiry       time.Time
-	Claims       idtoken.Claims
+	Claims       Claims
 	RawIDToken   string
 }
 

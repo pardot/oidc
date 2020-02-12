@@ -10,7 +10,7 @@ import (
 
 	"net/http"
 
-	"github.com/pardot/oidc/client"
+	"github.com/pardot/oidc"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 )
 
 type server struct {
-	oidccli  *client.Client
+	oidccli  *oidc.Client
 	mux      *http.ServeMux
 	muxSetup sync.Once
 }
