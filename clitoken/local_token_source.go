@@ -45,8 +45,6 @@ var (
 )
 
 const (
-	ScopeGroups string = "groups"
-
 	ACRMultiFactor         string = "http://schemas.openid.net/pape/policies/2007/06/multi-factor"
 	ACRMultiFactorPhysical string = "http://schemas.openid.net/pape/policies/2007/06/multi-factor-physical"
 
@@ -94,7 +92,7 @@ var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 //     }
 //
 //     // use token
-func NewSource(client *oidc.Client, clientID string, clientSecret string, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
+func NewSource(client *oidc.Client, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
 
 	s := &LocalOIDCTokenSource{
 		client: client,
@@ -192,9 +190,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	go func() { _ = httpSrv.Serve(ln) }()
 	defer func() { _ = httpSrv.Shutdown(ctx) }()
 
-	authCodeOpts := []oidc.AuthCodeOption{
-		oidc.SetRedirectURL(fmt.Sprintf("http://localhost:%d/callback", tcpAddr.Port)),
-	}
+	authCodeOpts := []oidc.AuthCodeOption{}
 	if s.nonceGenerator != nil {
 		nonce, err := s.nonceGenerator(ctx)
 		if err != nil {
@@ -203,6 +199,9 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 
 		authCodeOpts = append(authCodeOpts, oidc.SetNonce(nonce))
 	}
+
+	// we need to update this each invocation
+	s.client.SetRedirectURL(fmt.Sprintf("http://localhost:%d/callback", tcpAddr.Port))
 
 	authURL := s.client.AuthCodeURL(state, authCodeOpts...)
 

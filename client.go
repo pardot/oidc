@@ -39,7 +39,7 @@ type ClientOpt func(*Client)
 // WithAdditionalScopes will set the given scopes on all AuthCode requests. This is in addition to the default "openid" scopes
 func WithAdditionalScopes(scopes []string) ClientOpt {
 	return func(c *Client) {
-		c.o2cfg.Scopes = append([]string{"openid"}, scopes...)
+		c.o2cfg.Scopes = append(c.o2cfg.Scopes, scopes...)
 	}
 }
 
@@ -86,19 +86,11 @@ func DiscoverClient(ctx context.Context, issuer, clientID, clientSecret, redirec
 }
 
 type authCodeCfg struct {
-	redirectURL string
-	nonce       string
+	nonce string
 }
 
 // AuthCodeOption can be used to modify the auth code URL that is generated.
 type AuthCodeOption func(*authCodeCfg)
-
-// SetRedirectURL overrides the base redirect URL for this request
-func SetRedirectURL(redir string) AuthCodeOption {
-	return func(cfg *authCodeCfg) {
-		cfg.redirectURL = redir
-	}
-}
 
 // SetNonce sets the nonce for this request
 func SetNonce(nonce string) AuthCodeOption {
@@ -115,18 +107,13 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 		o(accfg)
 	}
 
-	oc := c.o2cfg
 	aopts := []oauth2.AuthCodeOption{}
-
-	if accfg.redirectURL != "" {
-		oc.RedirectURL = accfg.redirectURL
-	}
 
 	if len(c.acrValues) > 0 {
 		aopts = append(aopts, oauth2.SetAuthURLParam("acr_values", strings.Join(c.acrValues, " ")))
 	}
 
-	return oc.AuthCodeURL(state, aopts...)
+	return c.o2cfg.AuthCodeURL(state, aopts...)
 }
 
 // Token encapsulates the data returned from the token endpoint
@@ -144,6 +131,11 @@ func (t *Token) Valid() bool {
 	// TODO - nbf claim?
 	return t.Claims.Expiry.Time().After(time.Now()) &&
 		t.IDToken != ""
+}
+
+// SetRedirectURL updates the redirect URL this client is configured for.
+func (c *Client) SetRedirectURL(redirectURL string) {
+	c.o2cfg.RedirectURL = redirectURL
 }
 
 // Exchange the returned code for a set of tokens
