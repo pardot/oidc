@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 
@@ -225,12 +223,6 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	return s.client.Exchange(ctx, res.code)
-}
-
-func (s *LocalOIDCTokenSource) debugf(pattern string, args ...interface{}) {
-	if os.Getenv("OIDC_DEBUG") != "" {
-		log.Printf(pattern, args...)
-	}
 }
 
 func randomStateValue() (string, error) {
