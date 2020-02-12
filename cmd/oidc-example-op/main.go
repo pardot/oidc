@@ -13,10 +13,23 @@ func main() {
 	smgr := newStubSMGR()
 	signer := mustInitSigner()
 
+	clients := staticClients([]client{
+		{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			RedirectURL:  "http://localhost:8084/callback",
+		},
+		{
+			ClientID:     "cli",
+			ClientSecret: "cli-client-secret",
+			Public:       true,
+		},
+	})
+
 	oidc, err := core.New(&core.Config{
 		AuthValidityTime: 5 * time.Minute,
 		CodeValidityTime: 5 * time.Minute,
-	}, smgr, &staticClients{}, signer)
+	}, smgr, clients, signer)
 	if err != nil {
 		log.Fatalf("Failed to create OIDC server instance: %v", err)
 	}
@@ -26,8 +39,10 @@ func main() {
 	m := http.NewServeMux()
 
 	svr := &server{
-		oidc:    oidc,
-		storage: smgr,
+		oidc:            oidc,
+		storage:         smgr,
+		tokenValidFor:   30 * time.Second,
+		refreshValidFor: 5 * time.Minute,
 	}
 
 	m.Handle("/", svr)

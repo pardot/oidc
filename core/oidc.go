@@ -262,6 +262,17 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 		return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "session not found in storage")
 	}
 
+	var openidScope bool
+	for _, s := range auth.Scopes {
+		if s == "openid" {
+			openidScope = true
+		}
+	}
+	if !openidScope {
+		return writeHTTPError(w, req, http.StatusForbidden, "Access Denied", err, "openid scope was not granted")
+
+	}
+
 	sess.Authorization = &corev1beta1.Authorization{
 		Scopes:       auth.Scopes,
 		Acr:          auth.ACR,
@@ -390,6 +401,10 @@ type TokenResponse struct {
 // This can handle both the initial access token request, as well as subsequent
 // calls for refreshes.
 //
+// This will always return a response to the user, regardless of success or
+// failure. As such, once returned the called can assume the HTTP request has
+// been dealt with appropriately
+//
 // https://openid.net/specs/openid-connect-core-1_0.html#TokenEndpoint
 // https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokens
 func (o *OIDC) Token(w http.ResponseWriter, req *http.Request, handler func(req *TokenRequest) (*TokenResponse, error)) error {
@@ -473,6 +488,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	tresp, err := handler(tr)
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "handler returned error", Cause: err}
+	}
+
+	if tresp.AccessTokenValidUntil.Before(o.now()) {
+		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "access token must be valid > now"}
 	}
 
 	// create a new access token
