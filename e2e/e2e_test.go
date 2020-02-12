@@ -97,7 +97,7 @@ func TestE2E(t *testing.T) {
 				}
 
 				// just finish it straight away
-				if err := oidcHandlers.FinishAuthorization(w, req, ar.SessionID, &core.Authorization{}); err != nil {
+				if err := oidcHandlers.FinishAuthorization(w, req, ar.SessionID, &core.Authorization{Scopes: []string{"openid"}}); err != nil {
 					t.Fatalf("error finishing authorization: %v", err)
 				}
 			})
