@@ -57,7 +57,8 @@ func main() {
 
 	log.Printf("Access Token: %s", tok.AccessToken)
 	log.Printf("Refresh Token: %s", tok.RefreshToken)
+	log.Printf("Access Token expires: %s", tok.Expiry.String())
 	log.Printf("ID token: %s", tok.IDToken)
-	log.Printf("Expires: %s", tok.Expiry.String())
+	log.Printf("Claims expires: %s", tok.Claims.Expiry.Time().String())
 	log.Printf("Claims: %v", tok.Claims)
 }

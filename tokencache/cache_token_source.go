@@ -86,33 +86,31 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 		return nil, fmt.Errorf("cache get: %v", err)
 	}
 
-	if token != nil {
-		if token.Valid() {
-			return token, nil
-		}
+	var newToken *oidc.Token
+	if token != nil && token.Valid() {
+		return token, nil
+	} else if token != nil && token.RefreshToken != "" {
 		// we have an expired token, try and refresh if we can.
-		if token.RefreshToken != "" {
-			rts := c.client.TokenSource(ctx, token)
-			t, err := rts.Token(ctx)
-			// ignore errors here, just let it fail to a new token
-			if err == nil {
-				token = t
-			}
+		rts := c.client.TokenSource(ctx, token)
+		t, err := rts.Token(ctx)
+		// ignore errors here, just let it fail to a new token
+		if err == nil {
+			newToken = t
 		}
 	}
 
-	if token == nil {
+	if newToken == nil {
 		// if we get here cache and refresh failed, so fetch from upstream
 		t, err := c.src.Token(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("fetching new token: %v", err)
 		}
-		token = t
+		newToken = t
 	}
 
-	if err := c.cache.Set(c.iss, c.aud, c.scopes, c.acrValues, token); err != nil {
+	if err := c.cache.Set(c.iss, c.aud, c.scopes, c.acrValues, newToken); err != nil {
 		return nil, fmt.Errorf("updating cache: %v", err)
 	}
 
-	return token, nil
+	return newToken, nil
 }
