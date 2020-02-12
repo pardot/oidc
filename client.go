@@ -84,11 +84,11 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 
 // Token encapsulates the data returned from the token endpoint
 type Token struct {
-	AccessToken  string
-	RefreshToken string
-	Expiry       time.Time
-	Claims       Claims
-	RawIDToken   string
+	AccessToken  string    `json:"access_token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	Expiry       time.Time `json:"expiry,omitempty"`
+	Claims       Claims    `json:"claims,omitempty"`
+	IDToken      string    `json:"id_token,omitempty"`
 }
 
 // Exchange the returned code for a set of tokens
@@ -118,7 +118,7 @@ func (c *Client) oauth2Token(ctx context.Context, t *oauth2.Token) (*Token, erro
 		RefreshToken: t.RefreshToken,
 		Expiry:       t.Expiry,
 		Claims:       *cl,
-		RawIDToken:   raw,
+		IDToken:      raw,
 	}, nil
 }
 

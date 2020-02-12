@@ -152,7 +152,7 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 			return nil, nil
 		}
 
-		session.Values[sessionKeyOIDCIDToken] = token.RawIDToken
+		session.Values[sessionKeyOIDCIDToken] = token.IDToken
 		session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
 
 		idToken = &token.Claims
@@ -205,7 +205,7 @@ func (h *Handler) authenticateCallback(r *http.Request, session *sessions.Sessio
 		return "", err
 	}
 
-	session.Values[sessionKeyOIDCIDToken] = token.RawIDToken
+	session.Values[sessionKeyOIDCIDToken] = token.IDToken
 	session.Values[sessionKeyOIDCRefreshToken] = token.RefreshToken
 	delete(session.Values, sessionKeyOIDCState)
 

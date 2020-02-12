@@ -1,4 +1,4 @@
-package oidc
+package tokencache
 
 import (
 	"bytes"
@@ -15,55 +15,16 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/mitchellh/go-homedir"
+	"github.com/pardot/oidc"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
 	"golang.org/x/crypto/ssh/terminal"
-	"golang.org/x/oauth2"
 )
 
 type PassphrasePromptFunc func(prompt string) (passphrase string, err error)
-
-type oauth2TokenWithExtra oauth2.Token
-
-func (t *oauth2TokenWithExtra) MarshalJSON() ([]byte, error) {
-	m := map[string]interface{}{
-		"access_token":  t.AccessToken,
-		"token_type":    t.TokenType,
-		"refresh_token": t.RefreshToken,
-		"expiry":        t.Expiry,
-		"id_token":      (*oauth2.Token)(t).Extra("id_token"),
-	}
-
-	return json.Marshal(m)
-}
-
-func (t *oauth2TokenWithExtra) UnmarshalJSON(b []byte) error {
-	s := struct {
-		AccessToken  string    `json:"access_token"`
-		TokenType    string    `json:"token_type"`
-		RefreshToken string    `json:"refresh_token"`
-		Expiry       time.Time `json:"expiry"`
-		IDToken      string    `json:"id_token"`
-	}{}
-
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-
-	t2 := new(oauth2.Token)
-	t2.AccessToken = s.AccessToken
-	t2.TokenType = s.TokenType
-	t2.RefreshToken = s.RefreshToken
-	t2.Expiry = s.Expiry
-	t2 = t2.WithExtra(map[string]interface{}{"id_token": s.IDToken})
-
-	*t = oauth2TokenWithExtra(*t2)
-	return nil
-}
 
 // CredentialCache is capable of caching and retrieving OpenID Connect tokens.
 // At this time, CredentialCache implementations are not required to be
@@ -73,10 +34,10 @@ type CredentialCache interface {
 	// Get returns a token from cache for the given issuer, clientID, scopes
 	// and ACR values. Cache misses are _not_ considered an error, so a
 	// cache miss will be returned as `(nil, nil)`
-	Get(issuer string, clientID string, scopes []string, acrValues []string) (*oauth2.Token, error)
+	Get(issuer string, clientID string, scopes []string, acrValues []string) (*oidc.Token, error)
 	// Set sets a token in the cache for the given issuer, clientID, scopes
 	// and ACR values.
-	Set(issuer string, clientID string, scopes []string, acrValues []string, token *oauth2.Token) error
+	Set(issuer string, clientID string, scopes []string, acrValues []string, token *oidc.Token) error
 	// Available returns true if the credential cache is supported on this
 	// platform or environment.
 	Available() bool
@@ -101,7 +62,7 @@ type KeychainCredentialCache struct{}
 
 var _ CredentialCache = &KeychainCredentialCache{}
 
-func (k *KeychainCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oauth2.Token, error) {
+func (k *KeychainCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oidc.Token, error) {
 	cmd := exec.Command(
 		"/usr/bin/security",
 		"find-generic-password",
@@ -119,16 +80,16 @@ func (k *KeychainCredentialCache) Get(issuer string, clientID string, scopes []s
 		return nil, errors.Wrapf(err, "%s", string(out))
 	}
 
-	var token oauth2TokenWithExtra
+	var token oidc.Token
 	if err := json.Unmarshal(out, &token); err != nil {
 		return nil, errors.Wrap(err, "failed to decode token")
 	}
 
-	return (*oauth2.Token)(&token), nil
+	return &token, nil
 }
 
-func (k *KeychainCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oauth2.Token) error {
-	b, err := json.Marshal((*oauth2TokenWithExtra)(token))
+func (k *KeychainCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oidc.Token) error {
+	b, err := json.Marshal(token)
 	if err != nil {
 		return errors.Wrap(err, "failed to encode token")
 	}
@@ -188,7 +149,7 @@ type EncryptedFileCredentialCache struct {
 
 var _ CredentialCache = &EncryptedFileCredentialCache{}
 
-func (e *EncryptedFileCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oauth2.Token, error) {
+func (e *EncryptedFileCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oidc.Token, error) {
 	dir, err := e.resolveDir()
 	if err != nil {
 		return nil, err
@@ -235,15 +196,15 @@ func (e *EncryptedFileCredentialCache) Get(issuer string, clientID string, scope
 		return nil, nil
 	}
 
-	token := new(oauth2TokenWithExtra)
+	token := new(oidc.Token)
 	if err := json.Unmarshal(plaintext, token); err != nil {
 		return nil, errors.Wrap(err, "failed to decode token")
 	}
 
-	return (*oauth2.Token)(token), nil
+	return token, nil
 }
 
-func (e *EncryptedFileCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oauth2.Token) error {
+func (e *EncryptedFileCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oidc.Token) error {
 	dir, err := e.resolveDir()
 	if err != nil {
 		return err
@@ -273,7 +234,7 @@ func (e *EncryptedFileCredentialCache) Set(issuer string, clientID string, scope
 		return err
 	}
 
-	plaintext, err := json.Marshal((*oauth2TokenWithExtra)(token))
+	plaintext, err := json.Marshal(token)
 	if err != nil {
 		return errors.Wrap(err, "failed to encode token")
 	}
@@ -377,12 +338,12 @@ func (e *EncryptedFileCredentialCache) promptFuncOrDefault() PassphrasePromptFun
 type MemoryWriteThroughCredentialCache struct {
 	CredentialCache
 
-	m map[string]*oauth2.Token
+	m map[string]*oidc.Token
 }
 
 var _ CredentialCache = &MemoryWriteThroughCredentialCache{}
 
-func (c *MemoryWriteThroughCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oauth2.Token, error) {
+func (c *MemoryWriteThroughCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oidc.Token, error) {
 	cacheKey := c.cacheKey(issuer, clientID, scopes, acrValues)
 
 	if token := c.m[cacheKey]; token != nil {
@@ -395,14 +356,14 @@ func (c *MemoryWriteThroughCredentialCache) Get(issuer string, clientID string, 
 	}
 
 	if c.m == nil {
-		c.m = make(map[string]*oauth2.Token)
+		c.m = make(map[string]*oidc.Token)
 	}
 	c.m[cacheKey] = token
 
 	return token, nil
 }
 
-func (c *MemoryWriteThroughCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oauth2.Token) error {
+func (c *MemoryWriteThroughCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oidc.Token) error {
 	err := c.CredentialCache.Set(issuer, clientID, scopes, acrValues, token)
 	if err != nil {
 		return err
@@ -411,7 +372,7 @@ func (c *MemoryWriteThroughCredentialCache) Set(issuer string, clientID string, 
 	cacheKey := c.cacheKey(issuer, clientID, scopes, acrValues)
 
 	if c.m == nil {
-		c.m = make(map[string]*oauth2.Token)
+		c.m = make(map[string]*oidc.Token)
 	}
 	c.m[cacheKey] = token
 
@@ -440,11 +401,11 @@ type NullCredentialCache struct{}
 
 var _ CredentialCache = &NullCredentialCache{}
 
-func (c *NullCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oauth2.Token, error) {
+func (c *NullCredentialCache) Get(issuer string, clientID string, scopes []string, acrValues []string) (*oidc.Token, error) {
 	return nil, nil
 }
 
-func (c *NullCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oauth2.Token) error {
+func (c *NullCredentialCache) Set(issuer string, clientID string, scopes []string, acrValues []string, token *oidc.Token) error {
 	return nil
 }
 

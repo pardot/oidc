@@ -1,4 +1,4 @@
-package oidc
+package clitoken
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/pardot/oidc"
+	"github.com/pardot/oidc/tokencache"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
@@ -61,7 +63,7 @@ type LocalOIDCTokenSource struct {
 	clientID     string
 	clientSecret string
 
-	credentialCache CredentialCache
+	credentialCache tokencache.CredentialCache
 	opener          Opener
 
 	additionalScopes []string
@@ -71,7 +73,7 @@ type LocalOIDCTokenSource struct {
 
 type LocalOIDCTokenSourceOpt func(s *LocalOIDCTokenSource)
 
-var _ OIDCTokenSource = (*LocalOIDCTokenSource)(nil)
+var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 
 // NewLocalOIDCTokenSource creates a token source that command line (CLI)
 // programs can use to fetch tokens from an OIDC Provider for use in
@@ -138,7 +140,7 @@ func WithNonceGenerator(generator func(context.Context) (string, error)) LocalOI
 
 // Token attempts to a fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
-func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oauth2.Token, error) {
+func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	s.Lock()
 	defer s.Unlock()
 

@@ -115,7 +115,7 @@ func (s *server) callback(w http.ResponseWriter, req *http.Request) {
 
 	tmplData := map[string]interface{}{
 		"access_token": token.AccessToken,
-		"id_token":     token.RawIDToken,
+		"id_token":     token.IDToken,
 		"claims":       string(cljson),
 	}
 
