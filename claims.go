@@ -100,6 +100,15 @@ type Claims struct {
 	raw json.RawMessage
 }
 
+func (c Claims) String() string {
+	m, err := json.Marshal(&c)
+	if err != nil {
+		return fmt.Sprintf("sub: %s failed: %v", c.Subject, err)
+	}
+
+	return string(m)
+}
+
 func (i Claims) MarshalJSON() ([]byte, error) {
 	// avoid recursing on this method
 	type ids Claims
