@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,7 +17,7 @@ const (
 
 // newToken generates a fresh token, from random data. The user and stored
 // states are returned.
-func newToken(sessID string, expires *timestamp.Timestamp) (*corev1beta1.UserToken, *corev1beta1.StoredToken, error) {
+func newToken(sessID string, expires time.Time) (*corev1beta1.UserToken, *accessToken, error) {
 	b := make([]byte, tokenLen)
 	if _, err := rand.Read(b); err != nil {
 		return nil, nil, fmt.Errorf("error reading random data: %w", err)
@@ -33,9 +33,9 @@ func newToken(sessID string, expires *timestamp.Timestamp) (*corev1beta1.UserTok
 		SessionId: sessID,
 	}
 
-	st := &corev1beta1.StoredToken{
-		Bcrypted:  bc,
-		ExpiresAt: expires,
+	st := &accessToken{
+		Bcrypted: bc,
+		Expiry:   expires,
 	}
 
 	return ut, st, nil
@@ -43,7 +43,7 @@ func newToken(sessID string, expires *timestamp.Timestamp) (*corev1beta1.UserTok
 
 // tokensMatch compares a deserialized user token, and it's corresponding stored
 // token. if the user token value hashes to the same value on the server.
-func tokensMatch(user *corev1beta1.UserToken, stored *corev1beta1.StoredToken) (bool, error) {
+func tokensMatch(user *corev1beta1.UserToken, stored *accessToken) (bool, error) {
 	err := bcrypt.CompareHashAndPassword(stored.Bcrypted, user.Token)
 	if err == nil {
 		// no error in comparison, they match
