@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/pardot/oidc"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -702,9 +701,4 @@ func strsContains(strs []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
-func newUnixTimeProto(t *timestamp.Timestamp) oidc.UnixTime {
-	return oidc.UnixTime(t.Seconds)
 }

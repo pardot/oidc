@@ -27,7 +27,7 @@ func TestVersionedSessions(t *testing.T) {
 		{
 			Name: "Current format",
 			Data: &versionedSession{
-				Version: sessionv2,
+				Version: sessionVer2,
 				Session: json.RawMessage([]byte(`{
 					"id": "test-id"
 				}`)),
@@ -120,7 +120,7 @@ func (m *mockSmgr) GetSession(_ context.Context, sessionID string, into Session)
 	switch v := m.data.(type) {
 	case *versionedSession:
 		m.t.Log("original is versioned session")
-		if v.Version != sessionv2 {
+		if v.Version != sessionVer2 {
 			return false, fmt.Errorf("want stored session v2, got: %s", v.Version)
 		}
 		jb, err = json.Marshal(v)

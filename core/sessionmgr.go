@@ -40,8 +40,7 @@ type SessionManager interface {
 }
 
 const (
-	sessionv1 = "session/v1"
-	sessionv2 = "session/v2"
+	sessionVer2 = "session/v2"
 )
 
 type versionedSession struct {
@@ -146,11 +145,11 @@ type rawSession struct {
 	json.RawMessage
 }
 
-func (_ *rawSession) ID() string {
+func (*rawSession) ID() string {
 	panic("should not be called")
 }
 
-func (_ *rawSession) Expiry() time.Time {
+func (*rawSession) Expiry() time.Time {
 	panic("should not be called")
 }
 
@@ -174,7 +173,7 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sess
 	if err = json.Unmarshal(raw.RawMessage, &vsess); err != nil {
 		return nil, fmt.Errorf("unmarshaling into versioned session: %v", err)
 	}
-	if vsess.Version == sessionv2 {
+	if vsess.Version == sessionVer2 {
 		// got the new one, unserialize the session data and peel out
 		sess := sessionV2{}
 		if err := json.Unmarshal(vsess.Session, &sess); err != nil {
@@ -193,7 +192,7 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sess
 	// do a quick sanity check that the data shape is right,
 
 	if sessv1.Id == "" {
-		return nil, fmt.Errorf("apparant proto session has no ID")
+		return nil, fmt.Errorf("apparent proto session has no ID")
 	}
 
 	// map the V1 into the V2
@@ -290,7 +289,7 @@ func putSession(ctx context.Context, sm SessionManager, sess *sessionV2) error {
 	}
 
 	vsess := &versionedSession{
-		Version: sessionv2,
+		Version: sessionVer2,
 		Session: json.RawMessage(ser),
 		sess:    sess,
 	}
