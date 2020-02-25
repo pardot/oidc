@@ -133,6 +133,12 @@ func (t *Token) Valid() bool {
 		t.IDToken != ""
 }
 
+// Type of the token
+func (t *Token) Type() string {
+	// only thing we support for now
+	return "Bearer"
+}
+
 // SetRedirectURL updates the redirect URL this client is configured for.
 func (c *Client) SetRedirectURL(redirectURL string) {
 	c.o2cfg.RedirectURL = redirectURL
