@@ -113,6 +113,10 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 		aopts = append(aopts, oauth2.SetAuthURLParam("acr_values", strings.Join(c.acrValues, " ")))
 	}
 
+	if accfg.nonce != "" {
+		aopts = append(aopts, oauth2.SetAuthURLParam("nonce", accfg.nonce))
+	}
+
 	return c.o2cfg.AuthCodeURL(state, aopts...)
 }
 
