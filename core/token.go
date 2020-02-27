@@ -62,11 +62,15 @@ func marshalToken(user *corev1beta1.UserToken) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("couldn't marshal user token to proto: %w", err)
 	}
-	return base64.RawStdEncoding.EncodeToString(b), nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func unmarshalToken(tok string) (*corev1beta1.UserToken, error) {
-	b, err := base64.RawStdEncoding.DecodeString(tok)
+	b, err := base64.RawURLEncoding.DecodeString(tok)
+	if _, ok := err.(base64.CorruptInputError); ok {
+		// token may have been encoded with previously used base64.RawStdEncoding encoder
+		b, err = base64.RawStdEncoding.DecodeString(tok)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("base64 decode of token failed: %w", err)
 	}
