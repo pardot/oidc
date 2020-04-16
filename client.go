@@ -100,10 +100,10 @@ func SetNonce(nonce string) AuthCodeOption {
 	}
 }
 
-// AddScope adds an additional scope request to this URL only
-func AddScope(scope string) AuthCodeOption {
+// AddScopes adds additional scopes to this URL only
+func AddScopes(scopes []string) AuthCodeOption {
 	return func(cfg *authCodeCfg) {
-		cfg.addlScopes = append(cfg.addlScopes, scope)
+		cfg.addlScopes = scopes
 	}
 }
 
