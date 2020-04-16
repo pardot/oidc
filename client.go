@@ -222,8 +222,9 @@ func (c *Client) Userinfo(ctx context.Context, token *Token) (*Userinfo, error) 
 
 	oat := &oauth2.Token{
 		AccessToken:  token.AccessToken,
-		TokenType:    "Bearer",
+		TokenType:    token.Type(),
 		RefreshToken: token.RefreshToken,
+		Expiry:       token.Expiry,
 	}
 
 	var roat *oauth2.Token
@@ -245,6 +246,13 @@ func (c *Client) Userinfo(ctx context.Context, token *Token) (*Userinfo, error) 
 		return nil, fmt.Errorf("error making identity request: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("authentication to userinfo endpoint failed")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("bad response from server: http %d", resp.StatusCode)
+	}
 
 	var cl Claims
 

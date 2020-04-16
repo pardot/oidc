@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -106,8 +107,10 @@ func TestE2E(t *testing.T) {
 			mux.HandleFunc("/token", func(w http.ResponseWriter, req *http.Request) {
 				err := oidcHandlers.Token(w, req, func(tr *core.TokenRequest) (*core.TokenResponse, error) {
 					return &core.TokenResponse{
-						IDToken:               tr.PrefillIDToken(oidcSvr.URL, "test-sub", time.Now().Add(1*time.Minute)),
-						AccessTokenValidUntil: time.Now().Add(1 * time.Minute),
+						IDToken:                tr.PrefillIDToken(oidcSvr.URL, "test-sub", time.Now().Add(1*time.Minute)),
+						AccessTokenValidUntil:  time.Now().Add(1 * time.Minute),
+						IssueRefreshToken:      true,
+						RefreshTokenValidUntil: time.Now().Add(2 * time.Minute),
 					}, nil
 				})
 				if err != nil {
@@ -123,7 +126,7 @@ func TestE2E(t *testing.T) {
 					return nil
 				})
 				if err != nil {
-					t.Errorf("error in token endpoint: %v", err)
+					t.Errorf("error in userinfo endpoint: %v", err)
 				}
 			})
 
@@ -177,7 +180,29 @@ func TestE2E(t *testing.T) {
 				t.Fatalf("error fetching userinfo: %v", err)
 			}
 
-			t.Logf("userinfo response: %#v", uir)
+			t.Logf("initial userinfo response: %#v", uir)
+
+			for i := 0; i < 5; i++ {
+				t.Logf("refresh iter: %d", i)
+				currRT := tok.RefreshToken
+
+				if err := smgr.expireAccessTokens(ctx); err != nil {
+					t.Fatalf("expiring tokens: %v", err)
+				}
+				tok.Expiry = time.Now().Add(-1 * time.Second) // needs to line up with remote change, else we won't refresh
+
+				uir, err := cl.Userinfo(ctx, tok)
+				if err != nil {
+					t.Fatalf("error fetching userinfo: %v", err)
+				}
+
+				if currRT == uir.Token.RefreshToken {
+					t.Fatal("userinfo should result in new refresh token")
+				}
+
+				tok = uir.Token
+			}
+
 		})
 	}
 }
@@ -268,6 +293,29 @@ func (s *stubSMGR) PutSession(_ context.Context, sess core.Session) error {
 
 func (s *stubSMGR) DeleteSession(ctx context.Context, sessionID string) error {
 	delete(s.sessions, sessionID)
+	return nil
+}
+
+// expireAccessTokens will set all the access token expirations to a time before
+// now.
+func (s *stubSMGR) expireAccessTokens(ctx context.Context) error {
+	for id, sd := range s.sessions {
+		sm := map[string]interface{}{}
+		if err := json.Unmarshal([]byte(sd), &sm); err != nil {
+			return err
+		}
+		ati, ok := sm["access_token"]
+		if !ok {
+			continue // no access token in this session, skip
+		}
+		at := ati.(map[string]interface{})
+		at["expires_at"] = time.Now().Add(-1 * time.Second).Format(time.RFC3339)
+		sd, err := json.Marshal(sm)
+		if err != nil {
+			return err
+		}
+		s.sessions[id] = string(sd)
+	}
 	return nil
 }
 
