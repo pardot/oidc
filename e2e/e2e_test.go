@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -114,12 +115,25 @@ func TestE2E(t *testing.T) {
 				}
 			})
 
+			mux.HandleFunc("/userinfo", func(w http.ResponseWriter, req *http.Request) {
+				err := oidcHandlers.Userinfo(w, req, func(w io.Writer, _ *core.UserinfoRequest) error {
+					fmt.Fprintf(w, `{
+						"sub": "test-sub"
+					}`)
+					return nil
+				})
+				if err != nil {
+					t.Errorf("error in token endpoint: %v", err)
+				}
+			})
+
 			// discovery endpoint
 			md := &discovery.ProviderMetadata{
 				Issuer:                oidcSvr.URL,
 				AuthorizationEndpoint: oidcSvr.URL + "/authorization",
 				TokenEndpoint:         oidcSvr.URL + "/token",
 				JWKSURI:               oidcSvr.URL + "/jwks.json",
+				UserinfoEndpoint:      oidcSvr.URL + "/userinfo",
 			}
 
 			discoh, err := discovery.NewConfigurationHandler(md, discovery.WithCoreDefaults())
@@ -157,6 +171,13 @@ func TestE2E(t *testing.T) {
 			}
 
 			t.Logf("claims: %#v", tok.Claims)
+
+			uir, err := cl.Userinfo(ctx, tok)
+			if err != nil {
+				t.Fatalf("error fetching userinfo: %v", err)
+			}
+
+			t.Logf("userinfo response: %#v", uir)
 		})
 	}
 }

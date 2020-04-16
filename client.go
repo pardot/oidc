@@ -2,7 +2,9 @@ package oidc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -191,9 +193,93 @@ func (c *Client) oauth2Token(ctx context.Context, t *oauth2.Token) (*Token, erro
 	}, nil
 }
 
+type Userinfo struct {
+	// Claims wraps the data returned from the endpoint. It should be
+	// Unmarshaled into the desired format
+	Claims Claims
+	// Token returns a new token after this response. This can be used to capture any refreshing that may have taken place.
+	Token *Token
+}
+
+// Userinfo fetches a set of user information claims from the configured
+// userinfo endpoint, provided the provider supports this.
+func (c *Client) Userinfo(ctx context.Context, token *Token) (*Userinfo, error) {
+	if c.md.UserinfoEndpoint == "" {
+		return nil, fmt.Errorf("provider does not have a userinfo endpoint")
+	}
+
+	if token.RefreshToken == "" && token.AccessToken == "" {
+		return nil, fmt.Errorf("token must have a refresh or access token specified")
+	}
+
+	if token.Claims.Subject == "" {
+		return nil, fmt.Errorf("token must have claims containing a subject")
+	}
+
+	// userinfo is just a HTTP call to the userinfo endpoint, but using the
+	// _auth_ rather than ID tokens. just used the wrapped oauth2 client to do
+	// this.
+
+	oat := &oauth2.Token{
+		AccessToken:  token.AccessToken,
+		TokenType:    "Bearer",
+		RefreshToken: token.RefreshToken,
+	}
+
+	var roat *oauth2.Token
+
+	oc := oauth2.NewClient(ctx, &captureTS{
+		ts: c.o2cfg.TokenSource(ctx, oat),
+		notify: func(t *oauth2.Token) {
+			roat = t
+		},
+	})
+
+	req, err := http.NewRequest("GET", c.md.UserinfoEndpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating identity fetch request: %v", err)
+	}
+
+	resp, err := oc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making identity request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var cl Claims
+
+	if err := json.NewDecoder(resp.Body).Decode(&cl); err != nil {
+		return nil, fmt.Errorf("failed decoding response body: %v", err)
+	}
+
+	rt := token
+
+	if roat.RefreshToken != token.RefreshToken {
+		// Probably refreshed upstream, create a new token to return
+		t, err := c.oauth2Token(ctx, roat)
+		if err != nil {
+			return nil, fmt.Errorf("updated token: %v", err)
+		}
+		rt = t
+	}
+
+	// make sure the returned userinfo subject matches the token, to prevent
+	// token substitution attacks
+	// https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
+	if cl.Subject != token.Claims.Subject {
+		return nil, fmt.Errorf("userinfo subject %q does not match token subject %q", cl.Subject, token.Claims.Subject)
+	}
+
+	return &Userinfo{
+		Claims: cl,
+		Token:  rt,
+	}, nil
+}
+
 type wrapTokenSource struct {
-	ts oauth2.TokenSource
-	c  *Client
+	ts     oauth2.TokenSource
+	c      *Client
+	notify func(t *Token)
 }
 
 func (c *Client) TokenSource(ctx context.Context, t *Token) TokenSource {
@@ -216,4 +302,18 @@ func (w *wrapTokenSource) Token(ctx context.Context) (*Token, error) {
 	}
 
 	return w.c.oauth2Token(ctx, o2tok)
+}
+
+type captureTS struct {
+	ts     oauth2.TokenSource
+	notify func(t *oauth2.Token)
+}
+
+func (c *captureTS) Token() (*oauth2.Token, error) {
+	t, err := c.ts.Token()
+	if err != nil {
+		return nil, err
+	}
+	c.notify(t)
+	return t, nil
 }
