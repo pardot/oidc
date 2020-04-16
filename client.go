@@ -285,9 +285,8 @@ func (c *Client) Userinfo(ctx context.Context, token *Token) (*Userinfo, error) 
 }
 
 type wrapTokenSource struct {
-	ts     oauth2.TokenSource
-	c      *Client
-	notify func(t *Token)
+	ts oauth2.TokenSource
+	c  *Client
 }
 
 func (c *Client) TokenSource(ctx context.Context, t *Token) TokenSource {

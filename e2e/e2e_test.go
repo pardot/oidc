@@ -298,7 +298,7 @@ func (s *stubSMGR) DeleteSession(ctx context.Context, sessionID string) error {
 
 // expireAccessTokens will set all the access token expirations to a time before
 // now.
-func (s *stubSMGR) expireAccessTokens(ctx context.Context) error {
+func (s *stubSMGR) expireAccessTokens(_ context.Context) error {
 	for id, sd := range s.sessions {
 		sm := map[string]interface{}{}
 		if err := json.Unmarshal([]byte(sd), &sm); err != nil {
