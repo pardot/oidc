@@ -86,7 +86,8 @@ func DiscoverClient(ctx context.Context, issuer, clientID, clientSecret, redirec
 }
 
 type authCodeCfg struct {
-	nonce string
+	nonce      string
+	addlScopes []string
 }
 
 // AuthCodeOption can be used to modify the auth code URL that is generated.
@@ -96,6 +97,13 @@ type AuthCodeOption func(*authCodeCfg)
 func SetNonce(nonce string) AuthCodeOption {
 	return func(cfg *authCodeCfg) {
 		cfg.nonce = nonce
+	}
+}
+
+// AddScope adds an additional scope request to this URL only
+func AddScope(scope string) AuthCodeOption {
+	return func(cfg *authCodeCfg) {
+		cfg.addlScopes = append(cfg.addlScopes, scope)
 	}
 }
 
@@ -117,7 +125,10 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 		aopts = append(aopts, oauth2.SetAuthURLParam("nonce", accfg.nonce))
 	}
 
-	return c.o2cfg.AuthCodeURL(state, aopts...)
+	oc := &c.o2cfg
+	oc.Scopes = append(oc.Scopes, accfg.addlScopes...)
+
+	return oc.AuthCodeURL(state, aopts...)
 }
 
 // Token encapsulates the data returned from the token endpoint
