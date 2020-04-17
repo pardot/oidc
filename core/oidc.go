@@ -465,7 +465,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	}
 	if !cok {
-		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: ""}
+		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "Invalid client secret"}
 	}
 
 	// Call the handler with information about the request, and get the response.
@@ -666,7 +666,7 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	authSp := strings.SplitN(req.Header.Get("authorization"), " ", 2)
 	if !strings.EqualFold(authSp[0], "bearer") || len(authSp) != 2 {
 		be := &bearerError{} // no content, just request auth
-		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String(), CauseMsg: "malformed Authorization header"}
 		_ = writeError(w, req, herr)
 		return herr
 	}
@@ -674,7 +674,7 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	uaccess, err := unmarshalToken(authSp[1])
 	if err != nil {
 		be := &bearerError{Code: bearerErrorCodeInvalidRequest, Description: "malformed token"}
-		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String(), Cause: err}
 		_ = writeError(w, req, herr)
 		return herr
 	}
@@ -690,7 +690,7 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	// make sure we have a valid, unexpired session and an unexpired token
 	if sess == nil || tsAfter(sess.ExpiresAt, o.tsnow()) || tsAfter(sess.AccessToken.ExpiresAt, o.tsnow()) {
 		be := &bearerError{Code: bearerErrorCodeInvalidToken, Description: "token no longer valid"}
-		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String()}
+		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String(), CauseMsg: "Access token expired"}
 		_ = writeError(w, req, herr)
 		return herr
 	}
