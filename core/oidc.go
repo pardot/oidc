@@ -721,6 +721,8 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 		SessionID: uaccess.SessionId,
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+
 	if err := handler(w, uireq); err != nil {
 		herr := &httpError{Code: http.StatusInternalServerError, Cause: err, CauseMsg: "error in user handler"}
 		_ = writeError(w, req, herr)
