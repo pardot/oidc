@@ -321,6 +321,10 @@ func TestIDTokenPrefill(t *testing.T) {
 	}
 }
 
+type unauthorizedErrImpl struct{ error }
+
+func (u *unauthorizedErrImpl) Unauthorized() bool { return true }
+
 func TestToken(t *testing.T) {
 	const (
 		clientID     = "client-id"
@@ -588,17 +592,17 @@ func TestToken(t *testing.T) {
 		}
 	})
 
-	t.Run("Refresh token with handler forbidding access", func(t *testing.T) {
+	t.Run("Refresh token with handler errors", func(t *testing.T) {
 		o := newOIDC()
 		codeToken := newCodeSess(t, o.smgr)
 
-		var returnErr bool
+		var returnErr error
 		const errDesc = "Refresh unauthorized"
 
 		ih := newHandler(t)
 		h := func(req *TokenRequest) (*TokenResponse, error) {
-			if returnErr {
-				return nil, &unauthorizedErr{error: errors.New(errDesc)}
+			if returnErr != nil {
+				return nil, returnErr
 			}
 			r, err := ih(req)
 			r.AccessTokenValidUntil = o.now().Add(5 * time.Minute)
@@ -621,8 +625,8 @@ func TestToken(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// try and refresh, and observe error
-		returnErr = true
+		// try and refresh, and observe intentional unauth error
+		returnErr = &unauthorizedErrImpl{error: errors.New(errDesc)}
 
 		treq = &tokenRequest{
 			GrantType:    GrantTypeRefreshToken,
@@ -642,6 +646,25 @@ func TestToken(t *testing.T) {
 		}
 		if terr.Code != tokenErrorCodeInvalidGrant || terr.Description != errDesc {
 			t.Fatalf("unexpected code %q (want %q) or description %q (want %q)", terr.Code, tokenErrorCodeInvalidGrant, terr.Description, errDesc)
+		}
+
+		// refresh with generic err
+		returnErr = errors.New("boomtown")
+
+		treq = &tokenRequest{
+			GrantType:    GrantTypeRefreshToken,
+			RefreshToken: tresp.RefreshToken,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		_, err = o.token(context.Background(), treq, h)
+
+		if err == nil {
+			t.Fatal("want error refreshing, got none")
+		}
+		if _, ok = err.(*httpError); !ok {
+			t.Fatalf("want http error, got %T", err)
 		}
 	})
 

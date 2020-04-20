@@ -398,21 +398,19 @@ type TokenResponse struct {
 	RefreshTokenValidUntil time.Time
 }
 
-type unauthorized interface {
+type unauthorizedErr interface {
 	error
 	Unauthorized() bool
 }
-
-type unauthorizedErr struct{ error }
-
-func (u *unauthorizedErr) Unauthorized() bool { return true }
 
 // Token is used to handle the access token endpoint for code flow requests.
 // This can handle both the initial access token request, as well as subsequent
 // calls for refreshes.
 //
 // If a handler returns an error, it will be checked and the endpoint will
-// respond to the user appropriately:
+// respond to the user appropriately. The session will not be invalidated
+// automatically, it it the responsibility of the handler to delete if it
+// requires this.
 // * If the error implements an `Unauthorized() bool` method and the result of
 // calling this is true, the caller will be notified of an `invalid_grant`. The
 // error text will be returned as the `error_description`
@@ -509,8 +507,8 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	tresp, err := handler(tr)
 	if err != nil {
-		var uaerr unauthorized = &unauthorizedErr{}
-		if errors.As(err, &uaerr); uaerr.Unauthorized() {
+		var uaerr unauthorizedErr
+		if errors.As(err, &uaerr); uaerr != nil && uaerr.Unauthorized() {
 			return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: uaerr.Error()}
 		}
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "handler returned error", Cause: err}
