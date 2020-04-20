@@ -152,7 +152,7 @@ type AuthorizationRequest struct {
 // StartAuthorization can be used to handle a request to the auth endpoint. It
 // will parse and validate the incoming request, returning a unique identifier.
 // If an error was returned, it should be assumed that this has been returned to
-// the user appropriately. Otherwise, no response will be written. The caller
+// the called appropriately. Otherwise, no response will be written. The caller
 // can then use this request to implement the appropriate auth flow. The authID
 // should be kept and treated as sensitive - it will be used to mark the request
 // as Authorized.
