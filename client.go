@@ -127,7 +127,8 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 		aopts = append(aopts, oauth2.SetAuthURLParam("nonce", accfg.nonce))
 	}
 
-	oc := &c.o2cfg
+	// copy to avoid modifying the original
+	oc := c.o2cfg
 	oc.Scopes = append(oc.Scopes, accfg.addlScopes...)
 
 	return oc.AuthCodeURL(state, aopts...)
