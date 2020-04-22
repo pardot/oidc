@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/pardot/oidc"
 	"github.com/pardot/oidc/core"
 	"github.com/pardot/oidc/discovery"
@@ -273,21 +272,21 @@ func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into core.Ses
 	if !ok {
 		return false, nil
 	}
-	if err := jsonpb.UnmarshalString(sess, into); err != nil {
+	if err := json.Unmarshal([]byte(sess), into); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 func (s *stubSMGR) PutSession(_ context.Context, sess core.Session) error {
-	if sess.GetId() == "" {
+	if sess.ID() == "" {
 		return fmt.Errorf("session has no ID")
 	}
-	strsess, err := (&jsonpb.Marshaler{}).MarshalToString(sess)
+	strsess, err := json.Marshal(sess)
 	if err != nil {
 		return err
 	}
-	s.sessions[sess.GetId()] = strsess
+	s.sessions[sess.ID()] = string(strsess)
 	return nil
 }
 

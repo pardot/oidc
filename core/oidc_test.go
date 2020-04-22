@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pardot/oidc"
@@ -123,7 +121,7 @@ func TestStartAuthorization(t *testing.T) {
 				authValidityTime: 1 * time.Minute,
 				codeValidityTime: 1 * time.Minute,
 
-				tsnow: ptypes.TimestampNow,
+				now: time.Now,
 			}
 
 			rec := httptest.NewRecorder()
@@ -156,15 +154,15 @@ func TestStartAuthorization(t *testing.T) {
 func TestFinishAuthorization(t *testing.T) {
 	sessID := mustGenerateID()
 
-	sess := corev1beta1.Session{
-		Id:       sessID,
-		ClientId: "client-id",
-		Request: &corev1beta1.AuthRequest{
-			RedirectUri:  "https://redir",
+	sess := sessionV2{
+		ID:       sessID,
+		ClientID: "client-id",
+		Request: &sessAuthRequest{
+			RedirectURI:  "https://redir",
 			State:        "state",
 			Scopes:       []string{"openid"},
 			Nonce:        "nonce",
-			ResponseType: corev1beta1.AuthRequest_CODE,
+			ResponseType: authRequestResponseTypeCode,
 		},
 	}
 
@@ -189,8 +187,8 @@ func TestFinishAuthorization(t *testing.T) {
 				}
 				lnqp.RawQuery = ""
 
-				if lnqp.String() != sess.Request.RedirectUri {
-					t.Errorf("want redir %s, got: %s", sess.Request.RedirectUri, lnqp.String())
+				if lnqp.String() != sess.Request.RedirectURI {
+					t.Errorf("want redir %s, got: %s", sess.Request.RedirectURI, lnqp.String())
 				}
 
 				locp, err := url.Parse(loc)
@@ -220,7 +218,7 @@ func TestFinishAuthorization(t *testing.T) {
 			SessionID:            mustGenerateID(),
 			WantReturnedErrMatch: matchHTTPErrStatus(403),
 			Check: func(t *testing.T, smgr SessionManager, _ *httptest.ResponseRecorder) {
-				gotSess := &corev1beta1.Session{}
+				gotSess := &versionedSession{}
 				ok, err := smgr.GetSession(context.Background(), sessID, gotSess)
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -232,18 +230,20 @@ func TestFinishAuthorization(t *testing.T) {
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
+			ctx := context.Background()
+
 			smgr := newStubSMGR()
 
 			lsess := &sess
-			lsess.Id = tc.SessionID
+			lsess.ID = tc.SessionID
 
-			if err := smgr.PutSession(context.Background(), lsess); err != nil {
+			if err := putSession(ctx, smgr, lsess); err != nil {
 				t.Fatal(err)
 			}
 
 			oidc := &OIDC{
-				smgr:  smgr,
-				tsnow: ptypes.TimestampNow,
+				smgr: smgr,
+				now:  time.Now,
 
 				authValidityTime: 1 * time.Minute,
 				codeValidityTime: 1 * time.Minute,
@@ -270,7 +270,7 @@ func TestFinishAuthorization(t *testing.T) {
 
 func TestIDTokenPrefill(t *testing.T) {
 	now := time.Date(2019, 11, 25, 12, 54, 11, 0, time.UTC)
-	tsNow, _ := ptypes.TimestampProto(now)
+
 	nowFn := func() time.Time {
 		return now
 	}
@@ -290,8 +290,8 @@ func TestIDTokenPrefill(t *testing.T) {
 					ACR: "acr",
 				},
 
-				authTime: tsNow,
-				authReq: &corev1beta1.AuthRequest{
+				authTime: now,
+				authReq: &sessAuthRequest{
 					Nonce: "nonce",
 				},
 
@@ -349,15 +349,14 @@ func TestToken(t *testing.T) {
 				},
 			},
 
-			now:   time.Now,
-			tsnow: ptypes.TimestampNow,
+			now: time.Now,
 		}
 	}
 
 	newCodeSess := func(t *testing.T, smgr SessionManager) (usertok string) {
 		t.Helper()
 
-		utok, stok, err := newToken(mustGenerateID(), tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+		utok, stok, err := newToken(mustGenerateID(), time.Now().Add(1*time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -367,15 +366,15 @@ func TestToken(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		sess := corev1beta1.Session{
-			Id:            utok.SessionId,
+		sess := &sessionV2{
+			ID:            utok.SessionId,
 			AuthCode:      stok,
-			Authorization: &corev1beta1.Authorization{},
-			ClientId:      clientID,
-			ExpiresAt:     tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+			Authorization: &sessAuthorization{},
+			ClientID:      clientID,
+			Expiry:        time.Now().Add(1 * time.Minute),
 		}
 
-		if err := smgr.PutSession(context.Background(), &sess); err != nil {
+		if err := putSession(context.Background(), smgr, sess); err != nil {
 			t.Fatal(err)
 		}
 
@@ -593,24 +592,24 @@ func TestFetchCodeSession(t *testing.T) {
 		Name string
 		// Setup should return both a session to be persisted, and a token
 		// request to use.
-		Setup func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest)
+		Setup func(t *testing.T) (sess *sessionV2, tr *tokenRequest)
 		// WantErrMatch signifies that we expect an error. If we don't, it is
 		// expected the retrieved session matches the saved session.
 		WantErrMatch func(error) bool
 		// Cmp compares the sessions. If nil, a simple proto.Equal is performed
-		Cmp func(t *testing.T, stored, returned *corev1beta1.Session)
+		Cmp func(t *testing.T, stored, returned *sessionV2)
 	}{
 		{
 			Name: "Valid session, valid request",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
+			Setup: func(t *testing.T) (sess *sessionV2, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:       sid,
+				sess = &sessionV2{
+					ID:       sid,
 					AuthCode: s,
 				}
 
@@ -620,32 +619,32 @@ func TestFetchCodeSession(t *testing.T) {
 
 				return sess, tr
 			},
-			Cmp: func(t *testing.T, stored, returned *corev1beta1.Session) {
+			Cmp: func(t *testing.T, stored, returned *sessionV2) {
 				if !returned.AuthCodeRedeemed {
 					t.Error("auth code should be marked as redeemed")
 				}
-				if returned.Id != stored.Id {
+				if returned.ID != stored.ID {
 					t.Error("mismatched session returned")
 				}
 			},
 		},
 		{
 			Name: "Code that does not correspond to a session",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
+			Setup: func(t *testing.T) (sess *sessionV2, tr *tokenRequest) {
 				badsid := mustGenerateID()
-				u, _, err := newToken(badsid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, _, err := newToken(badsid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
 				goodsid := mustGenerateID()
-				_, s, err := newToken(goodsid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				_, s, err := newToken(goodsid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:       goodsid,
+				sess = &sessionV2{
+					ID:       goodsid,
 					AuthCode: s,
 				}
 
@@ -659,9 +658,9 @@ func TestFetchCodeSession(t *testing.T) {
 		},
 		{
 			Name: "Token with bad data",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
+			Setup: func(t *testing.T) (sess *sessionV2, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -669,8 +668,8 @@ func TestFetchCodeSession(t *testing.T) {
 				// tamper with u by changing the actual token data
 				u.Token = []byte("willnotmatch")
 
-				sess = &corev1beta1.Session{
-					Id:       sid,
+				sess = &sessionV2{
+					ID:       sid,
 					AuthCode: s,
 				}
 
@@ -684,17 +683,17 @@ func TestFetchCodeSession(t *testing.T) {
 		},
 		{
 			Name: "Code that has expiration time in the past",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
+			Setup: func(t *testing.T) (sess *sessionV2, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), -1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(-1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:        sid,
-					AuthCode:  s,
-					ExpiresAt: tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+				sess = &sessionV2{
+					ID:       sid,
+					AuthCode: s,
+					Expiry:   time.Now().Add(1 * time.Minute),
 				}
 
 				tr = &tokenRequest{
@@ -716,15 +715,17 @@ func TestFetchCodeSession(t *testing.T) {
 
 			sess, tr := tc.Setup(t)
 
-			if err := smgr.PutSession(context.Background(), sess); err != nil {
+			if err := putSession(context.Background(), smgr, sess); err != nil {
 				t.Fatalf("error persisting initial session: %v", err)
 			}
 
 			got, err := oidc.fetchCodeSession(context.Background(), tr)
 			checkErrMatcher(t, tc.WantErrMatch, err)
 
-			if tc.WantErrMatch == nil && tc.Cmp == nil && !proto.Equal(sess, got) {
-				t.Errorf("returned session doesn't match persisted: %s", cmp.Diff(sess, got))
+			if tc.WantErrMatch == nil && tc.Cmp == nil {
+				if diff := cmp.Diff(sess, got); diff != "" {
+					t.Errorf("returned session doesn't match persisted: %s", diff)
+				}
 			}
 
 			if tc.Cmp != nil {
@@ -739,26 +740,26 @@ func TestFetchRefreshSession(t *testing.T) {
 		Name string
 		// Setup should return both a session to be persisted, and a token
 		// request to use.
-		Setup func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest)
+		Setup func(t *testing.T) (sess *sessionV2, tr *tokenRequest)
 		// WantErrMatch signifies that we expect an error. If we don't, it is
 		// expected the retrieved session matches the saved session.
 		WantErrMatch func(error) bool
 		// Cmp compares the sessions. If nil, a simple proto.Equal is performed
-		Cmp func(t *testing.T, stored, returned *corev1beta1.Session)
+		Cmp func(t *testing.T, stored, returned *sessionV2)
 	}{
 		{
 			Name: "Valid refresh token for a session",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, tr *tokenRequest) {
+			Setup: func(t *testing.T) (sess *sessionV2, tr *tokenRequest) {
 				sid := mustGenerateID()
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:           sid,
+				sess = &sessionV2{
+					ID:           sid,
 					RefreshToken: s,
-					ExpiresAt:    tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+					Expiry:       time.Now().Add(1 * time.Minute),
 				}
 
 				tr = &tokenRequest{
@@ -767,11 +768,11 @@ func TestFetchRefreshSession(t *testing.T) {
 
 				return sess, tr
 			},
-			Cmp: func(t *testing.T, stored, returned *corev1beta1.Session) {
+			Cmp: func(t *testing.T, stored, returned *sessionV2) {
 				if returned.RefreshToken != nil {
 					t.Error("refresh token should be cleared")
 				}
-				if returned.Id != stored.Id {
+				if returned.ID != stored.ID {
 					t.Error("mismatched session returned")
 				}
 			},
@@ -787,15 +788,17 @@ func TestFetchRefreshSession(t *testing.T) {
 
 			sess, tr := tc.Setup(t)
 
-			if err := smgr.PutSession(context.Background(), sess); err != nil {
+			if err := putSession(context.Background(), smgr, sess); err != nil {
 				t.Fatalf("error persisting initial session: %v", err)
 			}
 
 			got, err := oidc.fetchRefreshSession(context.Background(), tr)
 			checkErrMatcher(t, tc.WantErrMatch, err)
 
-			if tc.WantErrMatch == nil && tc.Cmp == nil && !proto.Equal(sess, got) {
-				t.Errorf("returned session don't match persisted: %s", cmp.Diff(sess, got))
+			if tc.WantErrMatch == nil && tc.Cmp == nil {
+				if diff := cmp.Diff(sess, got); diff != "" {
+					t.Errorf("returned session don't match persisted: %s", cmp.Diff(sess, got))
+				}
 			}
 
 			if tc.Cmp != nil {
@@ -822,7 +825,7 @@ func TestUserinfo(t *testing.T) {
 		Name string
 		// Setup should return both a session to be persisted, and an access
 		// token
-		Setup   func(t *testing.T) (sess *corev1beta1.Session, accessToken string)
+		Setup   func(t *testing.T) (sess *sessionV2, accessToken string)
 		Handler func(w io.Writer, uireq *UserinfoRequest) error
 		// WantErr signifies that we expect an error
 		WantErr bool
@@ -831,17 +834,17 @@ func TestUserinfo(t *testing.T) {
 	}{
 		{
 			Name: "Simple output, valid session",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+			Setup: func(t *testing.T) (sess *sessionV2, accessToken string) {
 				sid := "session-id"
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:          sid,
+				sess = &sessionV2{
+					ID:          sid,
 					AccessToken: s,
-					ExpiresAt:   tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+					Expiry:      time.Now().Add(1 * time.Minute),
 				}
 
 				return sess, mustMarshal(u)
@@ -853,9 +856,9 @@ func TestUserinfo(t *testing.T) {
 		},
 		{
 			Name: "Token for non-existent session",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+			Setup: func(t *testing.T) (sess *sessionV2, accessToken string) {
 				sid := "session-id"
-				u, _, err := newToken(sid, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+				u, _, err := newToken(sid, time.Now().Add(1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -867,17 +870,17 @@ func TestUserinfo(t *testing.T) {
 		},
 		{
 			Name: "Expired access token",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+			Setup: func(t *testing.T) (sess *sessionV2, accessToken string) {
 				sid := "session-id"
-				u, s, err := newToken(sid, tsAdd(ptypes.TimestampNow(), -1*time.Minute))
+				u, s, err := newToken(sid, time.Now().Add(-1*time.Minute))
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				sess = &corev1beta1.Session{
-					Id:          sid,
+				sess = &sessionV2{
+					ID:          sid,
 					AccessToken: s,
-					ExpiresAt:   tsAdd(ptypes.TimestampNow(), 1*time.Minute),
+					Expiry:      time.Now().Add(1 * time.Minute),
 				}
 
 				return sess, mustMarshal(u)
@@ -887,7 +890,7 @@ func TestUserinfo(t *testing.T) {
 		},
 		{
 			Name: "No access token",
-			Setup: func(t *testing.T) (sess *corev1beta1.Session, accessToken string) {
+			Setup: func(t *testing.T) (sess *sessionV2, accessToken string) {
 				return nil, ""
 			},
 			Handler: echoHandler,
@@ -905,7 +908,7 @@ func TestUserinfo(t *testing.T) {
 			sess, at := tc.Setup(t)
 
 			if sess != nil {
-				if err := smgr.PutSession(context.Background(), sess); err != nil {
+				if err := putSession(context.Background(), smgr, sess); err != nil {
 					t.Fatalf("error persisting initial session: %v", err)
 				}
 			}

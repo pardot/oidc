@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/pardot/oidc/signer"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -45,12 +45,12 @@ func (s *stubCS) ValidateClientRedirectURI(clientID, redirectURI string) (ok boo
 type stubSMGR struct {
 	// sessions maps JSON session objects by their ID
 	// JSON > proto here for better debug output
-	sessions map[string]string
+	sessions map[string][]byte
 }
 
 func newStubSMGR() *stubSMGR {
 	return &stubSMGR{
-		sessions: map[string]string{},
+		sessions: map[string][]byte{},
 	}
 }
 
@@ -71,21 +71,21 @@ func (s *stubSMGR) GetSession(_ context.Context, sessionID string, into Session)
 	if !ok {
 		return false, nil
 	}
-	if err := jsonpb.UnmarshalString(sess, into); err != nil {
+	if err := json.Unmarshal(sess, into); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 func (s *stubSMGR) PutSession(_ context.Context, sess Session) error {
-	if sess.GetId() == "" {
+	if sess.ID() == "" {
 		return fmt.Errorf("session has no ID")
 	}
-	strsess, err := (&jsonpb.Marshaler{}).MarshalToString(sess)
+	sb, err := json.Marshal(sess)
 	if err != nil {
 		return err
 	}
-	s.sessions[sess.GetId()] = strsess
+	s.sessions[sess.ID()] = sb
 	return nil
 }
 

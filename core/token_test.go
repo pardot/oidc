@@ -5,13 +5,12 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 )
 
 func TestTokens(t *testing.T) {
 	sessID := mustGenerateID()
 
-	utok, stok, err := newToken(sessID, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+	utok, stok, err := newToken(sessID, time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +35,7 @@ func TestTokens(t *testing.T) {
 		t.Error("want: tokens to be equal, got not equal")
 	}
 
-	utok2, _, err := newToken(sessID, tsAdd(ptypes.TimestampNow(), 1*time.Minute))
+	utok2, _, err := newToken(sessID, time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

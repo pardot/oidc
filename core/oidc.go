@@ -10,42 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/pardot/oidc"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 	"gopkg.in/square/go-jose.v2"
 )
-
-// Session represents an invidual user session, bound to a given client.
-//
-// The Session object is serializable as a protobuf Message both in the binary
-// and JSON formats.
-type Session interface {
-	proto.Message
-	// GetId returns the unique identifier for tracking this session.
-	GetId() string
-	// GetExpiresAt returns the time this session expires. Implementations
-	// should garbage collect expired sessions, as this implementation doesn't
-	GetExpiresAt() *timestamp.Timestamp
-}
-
-// SessionManager is used to track the state of the session across it's
-// lifecycle.
-type SessionManager interface {
-	// NewID should return a new, unique identifier to be used for a session. It
-	// should be hard to guess/brute force
-	NewID() string
-	// GetSession should return the current session state for the given session
-	// ID. It should be deserialized/written in to into. If the session does not
-	// exist, found should be false with no error.
-	GetSession(ctx context.Context, sessionID string, into Session) (found bool, err error)
-	// PutSession should persist the new state of the session
-	PutSession(context.Context, Session) error
-	// DeleteSession should remove the corresponding session.
-	DeleteSession(ctx context.Context, sessionID string) error
-}
 
 // Signer is used for signing identity tokens
 type Signer interface {
@@ -104,8 +71,7 @@ type OIDC struct {
 	authValidityTime time.Duration
 	codeValidityTime time.Duration
 
-	now   func() time.Time
-	tsnow func() *timestamp.Timestamp
+	now func() time.Time
 }
 
 func New(cfg *Config, smgr SessionManager, clientSource ClientSource, signer Signer) (*OIDC, error) {
@@ -117,8 +83,7 @@ func New(cfg *Config, smgr SessionManager, clientSource ClientSource, signer Sig
 		authValidityTime: cfg.AuthValidityTime,
 		codeValidityTime: cfg.CodeValidityTime,
 
-		now:   time.Now,
-		tsnow: ptypes.TimestampNow,
+		now: time.Now,
 	}
 
 	if o.authValidityTime == time.Duration(0) {
@@ -191,8 +156,8 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 		return nil, writeHTTPError(w, req, http.StatusBadRequest, "Invalid redirect URI", nil, "")
 	}
 
-	ar := &corev1beta1.AuthRequest{
-		RedirectUri: redir.String(),
+	ar := &sessAuthRequest{
+		RedirectURI: redir.String(),
 		State:       authreq.State,
 		Scopes:      authreq.Scopes,
 		Nonce:       authreq.Raw.Get("nonce"),
@@ -200,25 +165,25 @@ func (o *OIDC) StartAuthorization(w http.ResponseWriter, req *http.Request) (*Au
 
 	switch authreq.ResponseType {
 	case responseTypeCode:
-		ar.ResponseType = corev1beta1.AuthRequest_CODE
+		ar.ResponseType = authRequestResponseTypeCode
 	default:
 		return nil, writeAuthError(w, req, redir, authErrorCodeUnsupportedResponseType, authreq.State, "response type must be code", nil)
 	}
 
-	sess := &corev1beta1.Session{
-		Id:        o.smgr.NewID(),
-		Stage:     corev1beta1.Session_REQUESTED,
-		ClientId:  authreq.ClientID,
-		Request:   ar,
-		ExpiresAt: tsAdd(o.tsnow(), o.authValidityTime),
+	sess := &sessionV2{
+		ID:       o.smgr.NewID(),
+		Stage:    sessionStageRequested,
+		ClientID: authreq.ClientID,
+		Request:  ar,
+		Expiry:   o.now().Add(o.authValidityTime),
 	}
 
-	if err := o.smgr.PutSession(req.Context(), sess); err != nil {
+	if err := putSession(req.Context(), o.smgr, sess); err != nil {
 		return nil, writeAuthError(w, req, redir, authErrorCodeErrServerError, authreq.State, "failed to persist session", err)
 	}
 
 	areq := &AuthorizationRequest{
-		SessionID: sess.Id,
+		SessionID: sess.ID,
 		Scopes:    authreq.Scopes,
 		ClientID:  authreq.ClientID,
 	}
@@ -273,25 +238,25 @@ func (o *OIDC) FinishAuthorization(w http.ResponseWriter, req *http.Request, ses
 
 	}
 
-	sess.Authorization = &corev1beta1.Authorization{
+	sess.Authorization = &sessAuthorization{
 		Scopes:       auth.Scopes,
-		Acr:          auth.ACR,
-		Amr:          auth.AMR,
-		AuthorizedAt: o.tsnow(),
+		ACR:          auth.ACR,
+		AMR:          auth.AMR,
+		AuthorizedAt: o.now(),
 	}
 
 	switch sess.Request.ResponseType {
-	case corev1beta1.AuthRequest_CODE:
+	case authRequestResponseTypeCode:
 		return o.finishCodeAuthorization(w, req, sess)
 	default:
-		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", nil, fmt.Sprintf("unknown ResponseType %s", sess.Request.ResponseType.String()))
+		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", nil, fmt.Sprintf("unknown ResponseType %s", sess.Request.ResponseType))
 	}
 }
 
-func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, session *corev1beta1.Session) error {
-	codeExp := tsAdd(o.tsnow(), o.codeValidityTime)
+func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request, session *sessionV2) error {
+	codeExp := o.now().Add(o.codeValidityTime)
 
-	ucode, scode, err := newToken(session.Id, codeExp)
+	ucode, scode, err := newToken(session.ID, codeExp)
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to generate code token")
 	}
@@ -302,15 +267,15 @@ func (o *OIDC) finishCodeAuthorization(w http.ResponseWriter, req *http.Request,
 	}
 
 	session.AuthCode = scode
-	session.Stage = corev1beta1.Session_CODE
+	session.Stage = sessionStageCode
 	// switch expiry to the max lifetime of the code
-	session.ExpiresAt = codeExp
+	session.Expiry = codeExp
 
-	if err := o.smgr.PutSession(req.Context(), session); err != nil {
+	if err := putSession(req.Context(), o.smgr, session); err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to put authReq to storage")
 	}
 
-	redir, err := url.Parse(session.Request.RedirectUri)
+	redir, err := url.Parse(session.Request.RedirectURI)
 	if err != nil {
 		return writeHTTPError(w, req, http.StatusInternalServerError, "internal error", err, "failed to parse authreq's URI")
 	}
@@ -345,8 +310,8 @@ type TokenRequest struct {
 	// grant (i.e called with a refresh, rather than access token)
 	IsRefresh bool
 
-	authTime *timestamp.Timestamp
-	authReq  *corev1beta1.AuthRequest
+	authTime time.Time
+	authReq  *sessAuthRequest
 	now      func() time.Time
 }
 
@@ -371,7 +336,7 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.C
 		ACR:      t.Authorization.ACR,
 		AMR:      t.Authorization.AMR,
 		IssuedAt: oidc.NewUnixTime(t.now()),
-		AuthTime: newUnixTimeProto(t.authTime),
+		AuthTime: oidc.NewUnixTime(t.authTime),
 		Nonce:    t.authReq.Nonce,
 		Extra:    map[string]interface{}{},
 	}
@@ -429,7 +394,7 @@ func (o *OIDC) Token(w http.ResponseWriter, req *http.Request, handler func(req 
 }
 
 func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *TokenRequest) (*TokenResponse, error)) (*tokenResponse, error) {
-	var sess *corev1beta1.Session
+	var sess *sessionV2
 	var err error
 
 	var isRefresh bool
@@ -448,13 +413,12 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, err
 	}
 
-	exp, _ := ptypes.Timestamp(sess.ExpiresAt)
-	if o.now().After(exp) {
+	if o.now().After(sess.Expiry) {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	// check to see if we're working with the same client
-	if sess.ClientId != req.ClientID {
+	if sess.ClientID != req.ClientID {
 		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "", Cause: fmt.Errorf("code redeemed for wrong client")}
 	}
 
@@ -474,12 +438,12 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	tr := &TokenRequest{
-		SessionID: sess.Id,
+		SessionID: sess.ID,
 		ClientID:  req.ClientID,
 		Authorization: Authorization{
 			Scopes: sess.Authorization.Scopes,
-			ACR:    sess.Authorization.Acr,
-			AMR:    sess.Authorization.Amr,
+			ACR:    sess.Authorization.ACR,
+			AMR:    sess.Authorization.AMR,
 		},
 		GrantType:          req.GrantType,
 		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
@@ -504,13 +468,13 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	}
 
 	// create a new access token
-	useratok, satok, err := newToken(sess.Id, mustTs(tresp.AccessTokenValidUntil))
+	useratok, satok, err := newToken(sess.ID, tresp.AccessTokenValidUntil)
 	if err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 	}
-	sess.ExpiresAt = satok.ExpiresAt
+	sess.Expiry = satok.Expiry
 	sess.AccessToken = satok
-	sess.Stage = corev1beta1.Session_ACCESS_TOKEN_ISSUED
+	sess.Stage = sessionStageAccessTokenIssued
 
 	accessTok, err := marshalToken(useratok)
 	if err != nil {
@@ -521,13 +485,13 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	// do this after, as it'll set a longer expiration on the session
 	var refreshTok string
 	if tresp.IssueRefreshToken {
-		urefreshtok, srefreshtok, err := newToken(sess.Id, mustTs(tresp.RefreshTokenValidUntil))
+		urefreshtok, srefreshtok, err := newToken(sess.ID, tresp.RefreshTokenValidUntil)
 		if err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to generate access token", Cause: err}
 		}
-		sess.ExpiresAt = srefreshtok.ExpiresAt
+		sess.Expiry = srefreshtok.Expiry
 		sess.RefreshToken = srefreshtok
-		sess.Stage = corev1beta1.Session_REFRESHABLE
+		sess.Stage = sessionStageRefreshable
 
 		refreshTok, err = marshalToken(urefreshtok)
 		if err != nil {
@@ -538,7 +502,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		sess.RefreshToken = nil
 	}
 
-	if err := o.smgr.PutSession(ctx, sess); err != nil {
+	if err := putSession(ctx, o.smgr, sess); err != nil {
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to put access token", Cause: err}
 	}
 
@@ -564,7 +528,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 }
 
 // fetchCodeSession handles loading the session for a code grant.
-func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev1beta1.Session, error) {
+func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*sessionV2, error) {
 	ucode, err := unmarshalToken(treq.Code)
 	if err != nil {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
@@ -578,10 +542,10 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "sesion expired"}
 	}
 
-	if sess.AuthCodeRedeemed || tsAfter(sess.AuthCode.ExpiresAt, o.tsnow()) {
+	if sess.AuthCodeRedeemed || o.now().After(sess.AuthCode.Expiry) {
 		// Drop the session too, assume we're under some kind of replay.
 		// https://tools.ietf.org/html/rfc6819#section-4.4.1.1
-		if err := o.smgr.DeleteSession(ctx, sess.Id); err != nil {
+		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
@@ -593,7 +557,7 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev
 	}
 	if !ok {
 		// if we're passed an invalid code, assume we're under attack and drop the session
-		if err := o.smgr.DeleteSession(ctx, sess.Id); err != nil {
+		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid code", Cause: err}
@@ -605,7 +569,7 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*corev
 }
 
 // fetchCodeSession handles loading the session for a refresh grant.
-func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*corev1beta1.Session, error) {
+func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*sessionV2, error) {
 	urefresh, err := unmarshalToken(treq.RefreshToken)
 	if err != nil {
 		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
@@ -623,8 +587,8 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*co
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "no refresh token issued for session"}
 	}
 
-	if tsAfter(sess.ExpiresAt, o.tsnow()) || tsAfter(sess.RefreshToken.ExpiresAt, o.tsnow()) {
-		if err := o.smgr.DeleteSession(ctx, sess.Id); err != nil {
+	if o.now().After(sess.Expiry) || o.now().After(sess.RefreshToken.Expiry) {
+		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
@@ -636,7 +600,7 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*co
 	}
 	if !ok {
 		// if we're passed an invalid refresh token, assume we're under attack and drop the session
-		if err := o.smgr.DeleteSession(ctx, sess.Id); err != nil {
+		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
 		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid refresh token", Cause: err}
@@ -688,7 +652,7 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	}
 
 	// make sure we have a valid, unexpired session and an unexpired token
-	if sess == nil || tsAfter(sess.ExpiresAt, o.tsnow()) || tsAfter(sess.AccessToken.ExpiresAt, o.tsnow()) {
+	if sess == nil || o.now().After(sess.Expiry) || o.now().After(sess.AccessToken.Expiry) {
 		be := &bearerError{Code: bearerErrorCodeInvalidToken, Description: "token no longer valid"}
 		herr := &httpError{Code: http.StatusUnauthorized, WWWAuthenticate: be.String(), CauseMsg: "Access token expired"}
 		_ = writeError(w, req, herr)
@@ -705,7 +669,7 @@ func (o *OIDC) Userinfo(w http.ResponseWriter, req *http.Request, handler func(w
 	if !ok {
 		// if we're passed an invalid access token drop the whole session, might
 		// be under attack
-		if err := o.smgr.DeleteSession(req.Context(), sess.Id); err != nil {
+		if err := o.smgr.DeleteSession(req.Context(), sess.ID); err != nil {
 			herr := &httpError{Code: http.StatusInternalServerError, Cause: err}
 			_ = writeError(w, req, herr)
 			return herr
@@ -739,22 +703,4 @@ func strsContains(strs []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func getSession(ctx context.Context, sm SessionManager, sessionID string) (*corev1beta1.Session, error) {
-	sess := &corev1beta1.Session{}
-
-	found, err := sm.GetSession(ctx, sessionID, sess)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, nil
-	}
-	return sess, nil
-}
-
-// newUnixTimeProto creates a UnixTime from the given google.protobuf.Timestamp, t
-func newUnixTimeProto(t *timestamp.Timestamp) oidc.UnixTime {
-	return oidc.UnixTime(t.Seconds)
 }
