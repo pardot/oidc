@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http/httptest"
@@ -320,6 +321,10 @@ func TestIDTokenPrefill(t *testing.T) {
 	}
 }
 
+type unauthorizedErrImpl struct{ error }
+
+func (u *unauthorizedErrImpl) Unauthorized() bool { return true }
+
 func TestToken(t *testing.T) {
 	const (
 		clientID     = "client-id"
@@ -585,6 +590,83 @@ func TestToken(t *testing.T) {
 			t.Errorf("expired session should have given invalid_grant, got: %v", te)
 		}
 	})
+
+	t.Run("Refresh token with handler errors", func(t *testing.T) {
+		o := newOIDC()
+		codeToken := newCodeSess(t, o.smgr)
+
+		var returnErr error
+		const errDesc = "Refresh unauthorized"
+
+		ih := newHandler(t)
+		h := func(req *TokenRequest) (*TokenResponse, error) {
+			if returnErr != nil {
+				return nil, returnErr
+			}
+			r, err := ih(req)
+			r.AccessTokenValidUntil = o.now().Add(5 * time.Minute)
+			r.RefreshTokenValidUntil = o.now().Add(10 * time.Minute)
+			r.IssueRefreshToken = true
+			return r, err
+		}
+
+		// exchange the code for access/refresh tokens first
+		treq := &tokenRequest{
+			GrantType:    GrantTypeAuthorizationCode,
+			Code:         codeToken,
+			RedirectURI:  redirectURI,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		tresp, err := o.token(context.Background(), treq, h)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// try and refresh, and observe intentional unauth error
+		returnErr = &unauthorizedErrImpl{error: errors.New(errDesc)}
+
+		treq = &tokenRequest{
+			GrantType:    GrantTypeRefreshToken,
+			RefreshToken: tresp.RefreshToken,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		_, err = o.token(context.Background(), treq, h)
+
+		if err == nil {
+			t.Fatal("want error refreshing, got none")
+		}
+		terr, ok := err.(*tokenError)
+		if !ok {
+			t.Fatalf("want token error, got: %T", err)
+		}
+		if terr.Code != tokenErrorCodeInvalidGrant || terr.Description != errDesc {
+			t.Fatalf("unexpected code %q (want %q) or description %q (want %q)", terr.Code, tokenErrorCodeInvalidGrant, terr.Description, errDesc)
+		}
+
+		// refresh with generic err
+		returnErr = errors.New("boomtown")
+
+		treq = &tokenRequest{
+			GrantType:    GrantTypeRefreshToken,
+			RefreshToken: tresp.RefreshToken,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		}
+
+		_, err = o.token(context.Background(), treq, h)
+
+		if err == nil {
+			t.Fatal("want error refreshing, got none")
+		}
+		if _, ok = err.(*httpError); !ok {
+			t.Fatalf("want http error, got %T", err)
+		}
+	})
+
 }
 
 func TestFetchCodeSession(t *testing.T) {
