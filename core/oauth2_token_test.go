@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/pardot/oidc/oauth2"
 )
 
 func TestParseToken(t *testing.T) {
@@ -17,7 +18,7 @@ func TestParseToken(t *testing.T) {
 		Name        string
 		Req         func() *http.Request
 		WantErr     bool
-		WantErrCode tokenErrorCode
+		WantErrCode oauth2.TokenErrorCode
 		Want        *tokenRequest
 	}{
 		{
@@ -72,7 +73,7 @@ func TestParseToken(t *testing.T) {
 				"client_secret": "secret",
 			}),
 			WantErr:     true,
-			WantErrCode: tokenErrorCodeInvalidGrant,
+			WantErrCode: oauth2.TokenErrorCodeInvalidGrant,
 		},
 		{
 			Name: "Valid refresh request succeeds",
@@ -97,7 +98,7 @@ func TestParseToken(t *testing.T) {
 				"client_secret": "secret",
 			}),
 			WantErr:     true,
-			WantErrCode: tokenErrorCodeInvalidRequest,
+			WantErrCode: oauth2.TokenErrorCodeInvalidRequest,
 		},
 		{
 			Name: "Escaped basic auth creds", // https://tools.ietf.org/html/rfc6749#section-2.3.1
@@ -128,13 +129,13 @@ func TestParseToken(t *testing.T) {
 			if !tc.WantErr && err != nil {
 				t.Fatalf("want no error, got: %v", err)
 			}
-			if tc.WantErrCode != tokenErrorCode("") {
-				terr, ok := err.(*tokenError)
+			if tc.WantErrCode != oauth2.TokenErrorCode("") {
+				terr, ok := err.(*oauth2.TokenError)
 				if !ok {
 					t.Fatalf("want tokenError, got: %v of type %T", err, err)
 				}
-				if tc.WantErrCode != terr.Code {
-					t.Fatalf("want err code %s, got: %s", tc.WantErrCode, terr.Code)
+				if tc.WantErrCode != terr.ErrorCode {
+					t.Fatalf("want err code %s, got: %s", tc.WantErrCode, terr.ErrorCode)
 				}
 			}
 

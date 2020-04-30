@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pardot/oidc"
+	"github.com/pardot/oidc/oauth2"
 	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
@@ -435,7 +436,7 @@ func TestToken(t *testing.T) {
 
 		// replay fails
 		_, err = o.token(context.Background(), treq, newHandler(t))
-		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeInvalidGrant {
+		if err, ok := err.(*oauth2.TokenError); !ok || err.ErrorCode != oauth2.TokenErrorCodeInvalidGrant {
 			t.Errorf("want invalid token grant error, got: %v", err)
 		}
 	})
@@ -453,7 +454,7 @@ func TestToken(t *testing.T) {
 		}
 
 		_, err := o.token(context.Background(), treq, newHandler(t))
-		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeUnauthorizedClient {
+		if err, ok := err.(*oauth2.TokenError); !ok || err.ErrorCode != oauth2.TokenErrorCodeUnauthorizedClient {
 			t.Errorf("want unauthorized client error, got: %v", err)
 		}
 	})
@@ -473,7 +474,7 @@ func TestToken(t *testing.T) {
 		}
 
 		_, err := o.token(context.Background(), treq, newHandler(t))
-		if err, ok := err.(*tokenError); !ok || err.Code != tokenErrorCodeUnauthorizedClient {
+		if err, ok := err.(*oauth2.TokenError); !ok || err.ErrorCode != oauth2.TokenErrorCodeUnauthorizedClient {
 			t.Errorf("want unauthorized client error, got: %v", err)
 		}
 	})
@@ -586,7 +587,7 @@ func TestToken(t *testing.T) {
 		}
 
 		_, err = o.token(context.Background(), treq, h)
-		if te, ok := err.(*tokenError); !ok || te.Code != tokenErrorCodeInvalidGrant {
+		if te, ok := err.(*oauth2.TokenError); !ok || te.ErrorCode != oauth2.TokenErrorCodeInvalidGrant {
 			t.Errorf("expired session should have given invalid_grant, got: %v", te)
 		}
 	})
@@ -639,12 +640,12 @@ func TestToken(t *testing.T) {
 		if err == nil {
 			t.Fatal("want error refreshing, got none")
 		}
-		terr, ok := err.(*tokenError)
+		terr, ok := err.(*oauth2.TokenError)
 		if !ok {
 			t.Fatalf("want token error, got: %T", err)
 		}
-		if terr.Code != tokenErrorCodeInvalidGrant || terr.Description != errDesc {
-			t.Fatalf("unexpected code %q (want %q) or description %q (want %q)", terr.Code, tokenErrorCodeInvalidGrant, terr.Description, errDesc)
+		if terr.ErrorCode != oauth2.TokenErrorCodeInvalidGrant || terr.Description != errDesc {
+			t.Fatalf("unexpected code %q (want %q) or description %q (want %q)", terr.ErrorCode, oauth2.TokenErrorCodeInvalidGrant, terr.Description, errDesc)
 		}
 
 		// refresh with generic err
@@ -736,7 +737,7 @@ func TestFetchCodeSession(t *testing.T) {
 
 				return sess, tr
 			},
-			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+			WantErrMatch: matchTokenErrCode(oauth2.TokenErrorCodeInvalidGrant),
 		},
 		{
 			Name: "Token with bad data",
@@ -761,7 +762,7 @@ func TestFetchCodeSession(t *testing.T) {
 
 				return sess, tr
 			},
-			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+			WantErrMatch: matchTokenErrCode(oauth2.TokenErrorCodeInvalidGrant),
 		},
 		{
 			Name: "Code that has expiration time in the past",
@@ -784,7 +785,7 @@ func TestFetchCodeSession(t *testing.T) {
 
 				return sess, tr
 			},
-			WantErrMatch: matchTokenErrCode(tokenErrorCodeInvalidGrant),
+			WantErrMatch: matchTokenErrCode(oauth2.TokenErrorCodeInvalidGrant),
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
@@ -1044,13 +1045,13 @@ func matchAuthErrCode(code authErrorCode) func(error) bool {
 	}
 }
 
-func matchTokenErrCode(code tokenErrorCode) func(error) bool {
+func matchTokenErrCode(code oauth2.TokenErrorCode) func(error) bool {
 	return func(err error) bool {
-		terr, ok := err.(*tokenError)
+		terr, ok := err.(*oauth2.TokenError)
 		if !ok {
 			return false
 		}
-		return terr.Code == code
+		return terr.ErrorCode == code
 	}
 }
 

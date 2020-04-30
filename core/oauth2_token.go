@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pardot/oidc/oauth2"
 )
 
 type GrantType string
@@ -30,7 +32,7 @@ type tokenRequest struct {
 // https://tools.ietf.org/html/rfc6749#section-4.1.3
 func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 	if req.Method != http.MethodPost {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "method must be POST"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "method must be POST"}
 	}
 
 	tr := &tokenRequest{
@@ -46,11 +48,11 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 		var err error
 		tr.ClientID, err = url.QueryUnescape(cid)
 		if err != nil {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid encoding for client id"}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid encoding for client id"}
 		}
 		tr.ClientSecret, err = url.QueryUnescape(cs)
 		if err != nil {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid encoding for client secret"}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid encoding for client secret"}
 		}
 
 	} else {
@@ -61,22 +63,22 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 	switch req.FormValue("grant_type") {
 	case string(GrantTypeAuthorizationCode):
 		if tr.Code == "" {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "code is required for authorization_code grant"}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "code is required for authorization_code grant"}
 		}
 		if tr.RedirectURI == "" {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "redirect_uri is required for authorization_code grant"}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "redirect_uri is required for authorization_code grant"}
 		}
 		tr.GrantType = GrantTypeAuthorizationCode
 
 	case string(GrantTypeRefreshToken):
 		// https://tools.ietf.org/html/rfc6749#section-6
 		if tr.RefreshToken == "" {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "refresh_token is required for refresh grant"}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "refresh_token is required for refresh grant"}
 		}
 		tr.GrantType = GrantTypeRefreshToken
 
 	default:
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: fmt.Sprintf("grant_type must be %s", GrantTypeAuthorizationCode)}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: fmt.Sprintf("grant_type must be %s", GrantTypeAuthorizationCode)}
 	}
 
 	return tr, nil

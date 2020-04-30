@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/pardot/oidc/oauth2"
 )
 
 // writeError handles the passed error appropriately. After calling this, the
@@ -44,10 +46,10 @@ func writeError(w http.ResponseWriter, req *http.Request, err error) error {
 		}
 		http.Error(w, m, err.Code)
 
-	case *tokenError:
+	case *oauth2.TokenError:
 		w.Header().Add("Content-Type", "application/json;charset=UTF-8")
 		// https://tools.ietf.org/html/rfc6749#section-5.2
-		if err.Code == tokenErrorCodeInvalidClient {
+		if err.ErrorCode == oauth2.TokenErrorCodeInvalidClient {
 			if err.WWWAuthenticate != "" {
 				w.Header().Add("WWW-Authenticate", err.WWWAuthenticate)
 			}
@@ -168,39 +170,6 @@ func addRedirectToError(err error, redirectURI string) error { //nolint:unparam,
 		return err
 	}
 	return err
-}
-
-type tokenErrorCode string
-
-// https://tools.ietf.org/html/rfc6749#section-5.2
-// nolint:unused,varcheck,deadcode
-const (
-	tokenErrorCodeInvalidRequest       tokenErrorCode = "invalid_request"
-	tokenErrorCodeInvalidClient        tokenErrorCode = "invalid_client"
-	tokenErrorCodeInvalidGrant         tokenErrorCode = "invalid_grant"
-	tokenErrorCodeUnauthorizedClient   tokenErrorCode = "unauthorized_client"
-	tokenErrorCodeUnsupportedGrantType tokenErrorCode = "unsupported_grant_type"
-	tokenErrorCodeInvalidScope         tokenErrorCode = "invalid_scope"
-)
-
-type tokenError struct {
-	Code            tokenErrorCode `json:"error,omitempty"`
-	Description     string         `json:"error_description,omitempty"`
-	ErrorURI        string         `json:"error_uri,omitempty"`
-	Cause           error          `json:"-"`
-	WWWAuthenticate string         `json:"-"`
-}
-
-func (t *tokenError) Error() string {
-	str := fmt.Sprintf("%s error in token request: %s", t.Code, t.Description)
-	if t.Cause != nil {
-		str = fmt.Sprintf("%s (cause: %s)", str, t.Cause.Error())
-	}
-	return str
-}
-
-func (t *tokenError) Unwrap() error {
-	return t.Cause
 }
 
 type bearerErrorCode string

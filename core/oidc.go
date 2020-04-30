@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pardot/oidc"
+	"github.com/pardot/oidc/oauth2"
 	"gopkg.in/square/go-jose.v2"
 )
 
@@ -422,19 +423,19 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		sess, err = o.fetchRefreshSession(ctx, req)
 
 	default:
-		err = &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
+		err = &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "invalid grant type", Cause: fmt.Errorf("grant type %s not handled", req.GrantType)}
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	if o.now().After(sess.Expiry) {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	// check to see if we're working with the same client
 	if sess.ClientID != req.ClientID {
-		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "", Cause: fmt.Errorf("code redeemed for wrong client")}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeUnauthorizedClient, Description: "", Cause: fmt.Errorf("code redeemed for wrong client")}
 	}
 
 	// validate the client
@@ -444,7 +445,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 
 	}
 	if !cok {
-		return nil, &tokenError{Code: tokenErrorCodeUnauthorizedClient, Description: "Invalid client secret"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeUnauthorizedClient, Description: "Invalid client secret"}
 	}
 
 	// Call the handler with information about the request, and get the response.
@@ -473,7 +474,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 	if err != nil {
 		var uaerr unauthorizedErr
 		if errors.As(err, &uaerr); uaerr != nil && uaerr.Unauthorized() {
-			return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: uaerr.Error()}
+			return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: uaerr.Error()}
 		}
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "handler returned error", Cause: err}
 	}
@@ -550,7 +551,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*sessionV2, error) {
 	ucode, err := unmarshalToken(treq.Code)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 
 	sess, err := getSession(ctx, o.smgr, ucode.SessionId)
@@ -558,7 +559,7 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*sessi
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
 	}
 	if sess == nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "sesion expired"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "sesion expired"}
 	}
 
 	if sess.AuthCodeRedeemed || o.now().After(sess.AuthCode.Expiry) {
@@ -567,19 +568,19 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*sessi
 		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	ok, err := tokensMatch(ucode, sess.AuthCode)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid code", Cause: err}
 	}
 	if !ok {
 		// if we're passed an invalid code, assume we're under attack and drop the session
 		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid code", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "invalid code", Cause: err}
 	}
 
 	sess.AuthCodeRedeemed = true
@@ -591,7 +592,7 @@ func (o *OIDC) fetchCodeSession(ctx context.Context, treq *tokenRequest) (*sessi
 func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*sessionV2, error) {
 	urefresh, err := unmarshalToken(treq.RefreshToken)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
 	}
 
 	sess, err := getSession(ctx, o.smgr, urefresh.SessionId)
@@ -599,30 +600,30 @@ func (o *OIDC) fetchRefreshSession(ctx context.Context, treq *tokenRequest) (*se
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to get session from storage", Cause: err}
 	}
 	if sess == nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "token expired", Cause: err}
 	}
 
 	if sess.RefreshToken == nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "no refresh token issued for session"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "no refresh token issued for session"}
 	}
 
 	if o.now().After(sess.Expiry) || o.now().After(sess.RefreshToken.Expiry) {
 		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "token expired"}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "token expired"}
 	}
 
 	ok, err := tokensMatch(urefresh, sess.RefreshToken)
 	if err != nil {
-		return nil, &tokenError{Code: tokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidRequest, Description: "invalid refresh token", Cause: err}
 	}
 	if !ok {
 		// if we're passed an invalid refresh token, assume we're under attack and drop the session
 		if err := o.smgr.DeleteSession(ctx, sess.ID); err != nil {
 			return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "failed to delete session from storage", Cause: err}
 		}
-		return nil, &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "invalid refresh token", Cause: err}
+		return nil, &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "invalid refresh token", Cause: err}
 	}
 
 	// Drop the current token, it's been redeemed. The caller can decide to
