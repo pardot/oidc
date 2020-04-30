@@ -26,7 +26,7 @@ const (
 	// TokenErrorCodeInvalidGrant: The provided authorization grant (e.g.,
 	// authorization code, resource owner credentials) or refresh token is
 	// invalid, expired, revoked, does not match the redirection URI used in the
-	// authorization request, or was issued to another client.=
+	// authorization request, or was issued to another client.
 	TokenErrorCodeInvalidGrant TokenErrorCode = "invalid_grant"
 	// TokenErrorCodeUnauthorizedClient: The authenticated client is not
 	// authorized to use this authorization grant type.
