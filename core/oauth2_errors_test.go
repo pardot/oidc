@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/pardot/oidc/oauth2"
 	"golang.org/x/text/language"
 	"golang.org/x/text/search"
 )
@@ -96,20 +97,20 @@ func TestWriteError(t *testing.T) {
 		},
 		{
 			Name: "Token error should return JSON details",
-			Err:  &tokenError{Code: tokenErrorCodeInvalidGrant, Description: "grant is bad", ErrorURI: "https://error/info"},
+			Err:  &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidGrant, Description: "grant is bad", ErrorURI: "https://error/info"},
 			Cmp: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				if rec.Code != http.StatusBadRequest {
 					t.Errorf("want 400, got %d", rec.Code)
 				}
 
-				te := &tokenError{}
+				te := &oauth2.TokenError{}
 
 				if err := json.NewDecoder(rec.Body).Decode(te); err != nil {
 					t.Fatalf("failed to unmarshal response JSON: %v", err)
 				}
 
-				if te.Code != tokenErrorCodeInvalidGrant {
-					t.Errorf("want code %s, got %s", tokenErrorCodeInvalidClient, te.Code)
+				if te.ErrorCode != oauth2.TokenErrorCodeInvalidGrant {
+					t.Errorf("want code %s, got %s", oauth2.TokenErrorCodeInvalidClient, te.ErrorCode)
 				}
 
 				if te.Description != "grant is bad" {
@@ -119,7 +120,7 @@ func TestWriteError(t *testing.T) {
 		},
 		{
 			Name: "Token error can set www-authenticate header",
-			Err:  &tokenError{Code: tokenErrorCodeInvalidClient, WWWAuthenticate: "Basic"},
+			Err:  &oauth2.TokenError{ErrorCode: oauth2.TokenErrorCodeInvalidClient, WWWAuthenticate: "Basic"},
 			Cmp: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				if rec.Code != http.StatusUnauthorized {
 					t.Errorf("want 401, got %d", rec.Code)
