@@ -163,7 +163,7 @@ func (c *Client) SetRedirectURL(redirectURL string) {
 }
 
 // Exchange the returned code for a set of tokens. If the exchange fails and
-// returns an oauth2 error reponse, the returned error will be an
+// returns an oauth2 error response, the returned error will be an
 // `*github.com/parot/oidc/oauth2.TokenError`. If a HTTP error occurs, a
 // *HTTPError will be returned.
 func (c *Client) Exchange(ctx context.Context, code string) (*Token, error) {

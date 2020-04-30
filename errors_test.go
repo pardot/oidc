@@ -5,17 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	xoauth2 "golang.org/x/oauth2"
 )
-
-var errCmp = cmp.Comparer(func(x, y error) bool {
-	// Two errors are equal if either Is the other.
-	//
-	// We need to perform the test in both directions because cmp requires
-	// comparer functions to be symmetric, but errors.Is is not.
-	return errors.Is(x, y) || errors.Is(y, x)
-})
 
 func TestParseExchangeError(t *testing.T) {
 	for _, tc := range []struct {

@@ -10,7 +10,7 @@ import (
 	xoauth2 "golang.org/x/oauth2"
 )
 
-// HTTPError indicates a generic HTTP error occured during an interaction. It
+// HTTPError indicates a generic HTTP error occurred during an interaction. It
 // exposes details about the returned response, as well as the original error
 type HTTPError struct {
 	Response *http.Response
