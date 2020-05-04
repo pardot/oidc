@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -140,7 +139,7 @@ func TestE2E(t *testing.T) {
 
 			discoh, err := discovery.NewConfigurationHandler(md, discovery.WithCoreDefaults())
 			if err != nil {
-				log.Fatalf("Failed to initialize discovery handler: %v", err)
+				t.Fatalf("Failed to initialize discovery handler: %v", err)
 			}
 			mux.Handle("/.well-known/openid-configuration/", discoh)
 
