@@ -36,9 +36,7 @@ type infoOpts struct{}
 func main() {
 	ctx := context.Background()
 
-	baseFlags := baseOpts{
-		Offline: false,
-	}
+	baseFlags := baseOpts{}
 	baseFs := flag.NewFlagSet("oidccli", flag.ExitOnError)
 	baseFs.StringVar(&baseFlags.Issuer, "issuer", baseFlags.Issuer, "OIDC Issuer URL (required)")
 	baseFs.StringVar(&baseFlags.ClientID, "client-id", baseFlags.ClientID, "OIDC Client ID (required)")
