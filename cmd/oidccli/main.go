@@ -44,6 +44,7 @@ func main() {
 	baseFs.StringVar(&baseFlags.ClientID, "client-id", baseFlags.ClientID, "OIDC Client ID (required)")
 	baseFs.StringVar(&baseFlags.ClientSecret, "client-secret", baseFlags.ClientSecret, "OIDC Client Secret")
 	baseFs.BoolVar(&baseFlags.Offline, "offline", baseFlags.Offline, "Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires")
+	baseFs.BoolVar(&baseFlags.SkipCache, "skip-cache", baseFlags.SkipCache, "Do not perform any local caching on token")
 
 	var subcommands []*subCommand
 
@@ -137,18 +138,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	clis, err := clitoken.NewSource(client)
+	var ts oidc.TokenSource
+
+	ts, err = clitoken.NewSource(client)
 	if err != nil {
 		fmt.Printf("getting cli token source: %v", err)
 		os.Exit(1)
 	}
 
-	var tsOpts []tokencache.TokenSourceOpt
-	if baseFlags.Offline {
-		tsOpts = append(tsOpts, tokencache.WithRefreshClient(client))
-	}
+	if !baseFlags.SkipCache {
+		var tsOpts []tokencache.TokenSourceOpt
+		if baseFlags.Offline {
+			tsOpts = append(tsOpts, tokencache.WithRefreshClient(client))
+		}
 
-	ts := tokencache.TokenSource(clis, baseFlags.Issuer, baseFlags.ClientID, tsOpts...)
+		ts = tokencache.TokenSource(ts, baseFlags.Issuer, baseFlags.ClientID, tsOpts...)
+	}
 
 	if err := execFn(ctx, ts); err != nil {
 		fmt.Printf("error: %+v", err)
