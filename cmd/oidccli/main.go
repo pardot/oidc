@@ -24,6 +24,7 @@ type baseOpts struct {
 	ClientID     string
 	ClientSecret string
 	Offline      bool
+	SkipCache    bool
 }
 
 type rawOpts struct{}
@@ -60,14 +61,17 @@ func main() {
 		Description: "Output credentials in a format that can be consumed by kubectl/client-go",
 	})
 
-	infoFlags := kubeOpts{}
+	infoFlags := infoOpts{}
 	infoFs := flag.NewFlagSet("info", flag.ExitOnError)
 	subcommands = append(subcommands, &subCommand{
 		Flags:       infoFs,
 		Description: "Output information about the auth response in human-readable format",
 	})
 
-	baseFs.Parse(os.Args[1:])
+	if err := baseFs.Parse(os.Args[1:]); err != nil {
+		fmt.Printf("failed parsing args: %v", err)
+		os.Exit(1)
+	}
 
 	if len(baseFs.Args()) < 1 {
 		fmt.Print("error: subcommand required\n\n")
@@ -87,14 +91,26 @@ func main() {
 
 	switch baseFs.Arg(0) {
 	case "raw":
+		if err := rawFs.Parse(baseFs.Args()[1:]); err != nil {
+			fmt.Printf("failed parsing raw args: %v", err)
+			os.Exit(1)
+		}
 		execFn = func(ctx context.Context, ts oidc.TokenSource) error {
 			return raw(ctx, ts, rawFlags)
 		}
 	case "kubernetes":
+		if err := kubeFs.Parse(baseFs.Args()[1:]); err != nil {
+			fmt.Printf("failed parsing kube args: %v", err)
+			os.Exit(1)
+		}
 		execFn = func(ctx context.Context, ts oidc.TokenSource) error {
 			return kubernetes(ctx, ts, kubeFlags)
 		}
 	case "info":
+		if err := infoFs.Parse(baseFs.Args()[1:]); err != nil {
+			fmt.Printf("failed parsing info args: %v", err)
+			os.Exit(1)
+		}
 		execFn = func(ctx context.Context, ts oidc.TokenSource) error {
 			return info(ctx, ts, infoFlags)
 		}
@@ -202,7 +218,7 @@ func kubernetes(ctx context.Context, ts oidc.TokenSource, _ kubeOpts) error {
 	return json.NewEncoder(os.Stdout).Encode(&creds)
 }
 
-func info(ctx context.Context, ts oidc.TokenSource, _ kubeOpts) error {
+func info(ctx context.Context, ts oidc.TokenSource, _ infoOpts) error {
 	tok, err := ts.Token(ctx)
 	if err != nil {
 		return fmt.Errorf("fetching token: %v", err)
