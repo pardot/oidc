@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"testing"
 	"time"
 
@@ -76,8 +75,8 @@ func TestVersionedSessions(t *testing.T) {
 				t.Fatal("unexpected nil session")
 			}
 
-			log.Printf("got: %v", got)
-			log.Printf("want: %v", tc.Want)
+			t.Logf("got: %v", got)
+			t.Logf("want: %v", tc.Want)
 			if diff := cmp.Diff(tc.Want, got); diff != "" {
 				t.Errorf("first get: %v", diff)
 			}

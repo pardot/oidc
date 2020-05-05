@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
@@ -165,8 +164,6 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sess
 	if !found {
 		return nil, nil
 	}
-
-	log.Printf("found: %t got sess data: %s", found, string(raw.RawMessage))
 
 	// phase 1, read in to the new style and see if it matches.
 	vsess := versionedSession{}
