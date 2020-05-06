@@ -39,7 +39,6 @@ type CommandOpener struct {
 func (o *CommandOpener) Open(ctx context.Context, url string) error {
 	cmd := exec.CommandContext(ctx, o.CommandName, url)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
