@@ -317,12 +317,12 @@ func (e *EncryptedFileCredentialCache) promptFuncOrDefault() PassphrasePromptFun
 			return cp, nil
 		}
 
-		fmt.Printf("%s: ", prompt)
+		fmt.Fprintf(os.Stderr, "%s: ", prompt)
 		passphrase, err := terminal.ReadPassword(int(os.Stdin.Fd()))
 		if err != nil {
 			return "", err
 		}
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 
 		return string(passphrase), nil
 	}

@@ -3,6 +3,7 @@ package clitoken
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 )
@@ -36,7 +37,10 @@ type CommandOpener struct {
 }
 
 func (o *CommandOpener) Open(ctx context.Context, url string) error {
-	return exec.CommandContext(ctx, o.CommandName, url).Run()
+	cmd := exec.CommandContext(ctx, o.CommandName, url)
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // EchoOpener opens a URL by printing it to the console for the user to
