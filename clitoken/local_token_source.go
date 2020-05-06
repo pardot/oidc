@@ -57,6 +57,9 @@ type LocalOIDCTokenSource struct {
 	opener Opener
 
 	nonceGenerator func(context.Context) (string, error)
+
+	portLow  int
+	portHigh int
 }
 
 type LocalOIDCTokenSourceOpt func(s *LocalOIDCTokenSource)
@@ -91,7 +94,6 @@ var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 //
 //     // use token
 func NewSource(client *oidc.Client, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
-
 	s := &LocalOIDCTokenSource{
 		client: client,
 		opener: DetectOpener(),
@@ -110,6 +112,18 @@ func NewSource(client *oidc.Client, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDC
 func WithNonceGenerator(generator func(context.Context) (string, error)) LocalOIDCTokenSourceOpt {
 	return func(s *LocalOIDCTokenSource) {
 		s.nonceGenerator = generator
+	}
+}
+
+// WithPortRange specifies a port range for the local listener to use. The
+// first port in the range that is free will be bound. By default, port 0 is
+// bound, letting the operating system find a free port automatically. However,
+// some OAuth servers only support a limited number of redirect URLs. In that
+// case, the port range may need to be constrained to a known range.
+func WithPortRange(portLow int, portHigh int) LocalOIDCTokenSourceOpt {
+	return func(s *LocalOIDCTokenSource) {
+		s.portLow = portLow
+		s.portHigh = portHigh
 	}
 }
 
@@ -176,12 +190,9 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 
 		resultCh <- result{code: code}
 	})
-	httpSrv := &http.Server{
-		Addr:    "127.0.0.1:0", // let OS choose an open port for us
-		Handler: mux,
-	}
+	httpSrv := &http.Server{Handler: mux}
 
-	ln, err := net.Listen("tcp", httpSrv.Addr)
+	ln, err := newLocalTCPListenerInRange(s.portLow, s.portHigh)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to bind socket")
 	}
@@ -223,6 +234,17 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	return s.client.Exchange(ctx, res.code)
+}
+
+func newLocalTCPListenerInRange(portLow int, portHigh int) (net.Listener, error) {
+	for i := portLow; i <= portHigh; i++ {
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", i))
+		if err == nil {
+			return l, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no TCP port available in the range %d-%d", portLow, portHigh)
 }
 
 func randomStateValue() (string, error) {

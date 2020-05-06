@@ -23,6 +23,8 @@ type baseOpts struct {
 	Issuer       string
 	ClientID     string
 	ClientSecret string
+	PortLow      int
+	PortHigh     int
 	Offline      bool
 	SkipCache    bool
 }
@@ -41,6 +43,8 @@ func main() {
 	baseFs.StringVar(&baseFlags.Issuer, "issuer", baseFlags.Issuer, "OIDC Issuer URL (required)")
 	baseFs.StringVar(&baseFlags.ClientID, "client-id", baseFlags.ClientID, "OIDC Client ID (required)")
 	baseFs.StringVar(&baseFlags.ClientSecret, "client-secret", baseFlags.ClientSecret, "OIDC Client Secret")
+	baseFs.IntVar(&baseFlags.PortLow, "port-low", 0, "Lowest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.")
+	baseFs.IntVar(&baseFlags.PortHigh, "port-high", 0, "Highest TCP port to bind on localhost for callbacks. By default, a port will be randomly assigned by the operating system.")
 	baseFs.BoolVar(&baseFlags.Offline, "offline", baseFlags.Offline, "Offline use (request refresh token). This token will be cached locally, can be used to avoid re-launching the auth flow when the token expires")
 	baseFs.BoolVar(&baseFlags.SkipCache, "skip-cache", baseFlags.SkipCache, "Do not perform any local caching on token")
 
@@ -138,7 +142,7 @@ func main() {
 
 	var ts oidc.TokenSource
 
-	ts, err = clitoken.NewSource(client)
+	ts, err = clitoken.NewSource(client, clitoken.WithPortRange(baseFlags.PortLow, baseFlags.PortHigh))
 	if err != nil {
 		fmt.Printf("getting cli token source: %v", err)
 		os.Exit(1)
