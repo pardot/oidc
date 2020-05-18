@@ -55,25 +55,33 @@ func WithACRValues(acrValues []string, enforce bool) ClientOpt {
 	}
 }
 
+// DiscoverClient will create a client based on the OIDC discovery of the given
+// issuer. It will use the returned information to configure the client, and
+// will use it to create a KeySource that discovers published keys as needed.
 func DiscoverClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, opts ...ClientOpt) (*Client, error) {
 	cl, err := discovery.NewClient(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("creating discovery client: %v", err)
 	}
 
+	return NewClient(cl.Metadata(), cl, clientID, clientSecret, redirectURL, opts...), nil
+}
+
+// NewClient creates a client directly from the passed in information
+func NewClient(md *discovery.ProviderMetadata, ks KeySource, clientID, clientSecret, redirectURL string, opts ...ClientOpt) *Client {
 	c := &Client{
 		Verifier: Verifier{
-			md: cl.Metadata(),
-			ks: cl,
+			md: md,
+			ks: ks,
 		},
-		md: cl.Metadata(),
-		ks: cl,
+		md: md,
+		ks: ks,
 		o2cfg: oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Endpoint: oauth2.Endpoint{
-				AuthURL:  cl.Metadata().AuthorizationEndpoint,
-				TokenURL: cl.Metadata().TokenEndpoint,
+				AuthURL:  md.AuthorizationEndpoint,
+				TokenURL: md.TokenEndpoint,
 			},
 			Scopes:      []string{"openid"},
 			RedirectURL: redirectURL,
@@ -84,7 +92,7 @@ func DiscoverClient(ctx context.Context, issuer, clientID, clientSecret, redirec
 		o(c)
 	}
 
-	return c, nil
+	return c
 }
 
 type authCodeCfg struct {
@@ -160,6 +168,11 @@ func (t *Token) Type() string {
 // SetRedirectURL updates the redirect URL this client is configured for.
 func (c *Client) SetRedirectURL(redirectURL string) {
 	c.o2cfg.RedirectURL = redirectURL
+}
+
+// SetClientSecret updates the oauth2 client secret this client is configured for.
+func (c *Client) SetClientSecret(secret string) {
+	c.o2cfg.ClientSecret = secret
 }
 
 // Exchange the returned code for a set of tokens. If the exchange fails and
