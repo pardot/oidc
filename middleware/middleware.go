@@ -14,6 +14,7 @@ import (
 )
 
 type claimsContextKey struct{}
+type idtokenContextKey struct{}
 
 const (
 	defaultSessionName = "oidc-middleware"
@@ -40,9 +41,12 @@ type Handler struct {
 	// RedirectURL is the callback URL registered with the OIDC issuer for this
 	// relying party
 	RedirectURL string
-	// Scopes is a list of scopes to request from the OIDC server. If nil, the
-	// openid scope is requested.
-	Scopes []string
+	// AdditionalScopes is a list of scopes to request from the OIDC server, in
+	// addition to the base oidc scope.
+	AdditionalScopes []string
+	// ACRValues to request from the remote server. The handler validates that
+	// the returned token contains one of these.
+	ACRValues []string
 
 	// SessionAuthenticationKey is a 32 or 64 byte random key used to
 	// authenticate the session.
@@ -68,7 +72,7 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 		session := h.getSession(r)
 
 		// Check for a user that's already authenticated
-		claims, err := h.authenticateExisting(r, session)
+		raw, claims, err := h.authenticateExisting(r, session)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -80,6 +84,7 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 
 			// Authentication successful
 			r = r.WithContext(context.WithValue(r.Context(), claimsContextKey{}, claims))
+			r = r.WithContext(context.WithValue(r.Context(), idtokenContextKey{}, raw))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -121,17 +126,17 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 //
 // This function may modify the session if a token is refreshed, so it must be
 // saved afterward.
-func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (*oidc.Claims, error) {
+func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (raw string, c *oidc.Claims, err error) {
 	ctx := r.Context()
 
 	rawIDToken, ok := session.Values[sessionKeyOIDCIDToken].(string)
 	if !ok {
-		return nil, nil
+		return "", nil, nil
 	}
 
 	oidccl, err := h.getOIDCClient(ctx)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	idToken, err := oidccl.VerifyRaw(ctx, h.ClientID, rawIDToken)
@@ -139,17 +144,17 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		// Attempt to refresh the token
 		refreshToken, ok := session.Values[sessionKeyOIDCRefreshToken].(string)
 		if !ok {
-			return nil, nil
+			return "", nil, nil
 		}
 
 		oidccl, err := h.getOIDCClient(ctx)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		token, err := oidccl.TokenSource(ctx, &oidc.Token{RefreshToken: refreshToken}).Token(ctx)
 		if err != nil {
-			return nil, nil
+			return "", nil, nil
 		}
 
 		session.Values[sessionKeyOIDCIDToken] = token.IDToken
@@ -158,7 +163,7 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		idToken = &token.Claims
 	}
 
-	return idToken, nil
+	return rawIDToken, idToken, nil
 }
 
 // authenticateCallback returns (returnTo, nil) if the user is authenticated,
@@ -267,7 +272,14 @@ func (h *Handler) getSession(r *http.Request) *sessions.Session {
 func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
 	var initErr error
 	h.oidcClientInit.Do(func() {
-		h.oidcClient, initErr = oidc.DiscoverClient(ctx, h.Issuer, h.ClientID, h.ClientSecret, h.RedirectURL)
+		var opts []oidc.ClientOpt
+		if len(h.ACRValues) > 0 {
+			opts = append(opts, oidc.WithACRValues(h.ACRValues, true))
+		}
+		if len(h.AdditionalScopes) > 0 {
+			opts = append(opts, oidc.WithAdditionalScopes(h.AdditionalScopes))
+		}
+		h.oidcClient, initErr = oidc.DiscoverClient(ctx, h.Issuer, h.ClientID, h.ClientSecret, h.RedirectURL, opts...)
 	})
 	if initErr != nil {
 		return nil, initErr
@@ -276,10 +288,21 @@ func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
 	return h.oidcClient, nil
 }
 
+// ClaimsFromContext returns the claims for the given request context
 func ClaimsFromContext(ctx context.Context) *oidc.Claims {
 	c, ok := ctx.Value(claimsContextKey{}).(*oidc.Claims)
 	if !ok {
 		return nil
+	}
+
+	return c
+}
+
+// RawIDTokenFromContext returns the raw JWT from the given request context
+func RawIDTokenFromContext(ctx context.Context) string {
+	c, ok := ctx.Value(idtokenContextKey{}).(string)
+	if !ok {
+		return ""
 	}
 
 	return c
