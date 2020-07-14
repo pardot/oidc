@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pardot/oidc"
 	"gopkg.in/square/go-jose.v2"
 )
 
@@ -297,6 +298,69 @@ func TestMiddleware_HappyPath(t *testing.T) {
 	body := checkResponse(t, resp)
 	if !bytes.Equal([]byte("sub: valid-subject"), body) {
 		t.Fatalf("wanted body %s, got %s", "sub: valid-subject", string(body))
+	}
+}
+
+func TestContext(t *testing.T) {
+	var ( // Capture in handler
+		gotTokSrc oidc.TokenSource
+		gotClaims *oidc.Claims
+		gotRaw    string
+	)
+	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTokSrc = TokenSourceFromContext(r.Context())
+		gotClaims = ClaimsFromContext(r.Context())
+		gotRaw = RawIDTokenFromContext(r.Context())
+	})
+
+	oidcServer, cleanupOIDCServer := startMockOIDCServer(t)
+	defer cleanupOIDCServer()
+
+	oidcServer.validClientID = "valid-client-id"
+	oidcServer.validClientSecret = "valid-client-secret"
+
+	handler := &Handler{
+		Issuer:                   oidcServer.baseURL,
+		ClientID:                 oidcServer.validClientID,
+		ClientSecret:             oidcServer.validClientSecret,
+		SessionAuthenticationKey: []byte("super-secret-key"),
+	}
+
+	baseURL, cleanupServer := startServer(t, handler.Wrap(protected))
+	defer cleanupServer()
+
+	handler.BaseURL = baseURL
+
+	oidcServer.validRedirectURL = fmt.Sprintf("%s/callback", baseURL)
+	oidcServer.claims = map[string]interface{}{"sub": "valid-subject"}
+	handler.RedirectURL = oidcServer.validRedirectURL
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+
+	if _, err = client.Get(baseURL); err != nil {
+		t.Fatal(err)
+	}
+
+	if gotClaims.Subject != "valid-subject" {
+		t.Errorf("want claims sub valid-subject, got: %s", gotClaims.Subject)
+	}
+	if gotRaw == "" {
+		t.Error("context missing id_token")
+	}
+
+	tst, err := gotTokSrc.Token(context.Background())
+	if err != nil {
+		t.Fatalf("calling token source token: %v", err)
+	}
+	if tst.Claims.Subject != "valid-subject" {
+		t.Errorf("tokensource: want claims sub valid-subject, got: %s", tst.Claims.Subject)
+	}
+	if tst.IDToken == "" {
+		t.Error("tokensource: token missing id_token")
 	}
 }
 

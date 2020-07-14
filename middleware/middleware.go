@@ -13,8 +13,7 @@ import (
 	"github.com/pardot/oidc"
 )
 
-type claimsContextKey struct{}
-type idtokenContextKey struct{}
+type tokenContextKey struct{}
 
 const (
 	defaultSessionName = "oidc-middleware"
@@ -72,19 +71,18 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 		session := h.getSession(r)
 
 		// Check for a user that's already authenticated
-		raw, claims, err := h.authenticateExisting(r, session)
+		tok, err := h.authenticateExisting(r, session)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		} else if claims != nil {
+		} else if tok != nil {
 			if err := sessions.Save(r, w); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			// Authentication successful
-			r = r.WithContext(context.WithValue(r.Context(), claimsContextKey{}, claims))
-			r = r.WithContext(context.WithValue(r.Context(), idtokenContextKey{}, raw))
+			r = r.WithContext(context.WithValue(r.Context(), tokenContextKey{}, tok))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -126,17 +124,17 @@ func (h *Handler) Wrap(next http.Handler) http.Handler {
 //
 // This function may modify the session if a token is refreshed, so it must be
 // saved afterward.
-func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (raw string, c *oidc.Claims, err error) {
+func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Session) (*oidc.Token, error) {
 	ctx := r.Context()
 
 	rawIDToken, ok := session.Values[sessionKeyOIDCIDToken].(string)
 	if !ok {
-		return "", nil, nil
+		return nil, nil
 	}
 
 	oidccl, err := h.getOIDCClient(ctx)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
 	idToken, err := oidccl.VerifyRaw(ctx, h.ClientID, rawIDToken)
@@ -144,17 +142,17 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		// Attempt to refresh the token
 		refreshToken, ok := session.Values[sessionKeyOIDCRefreshToken].(string)
 		if !ok {
-			return "", nil, nil
+			return nil, nil
 		}
 
 		oidccl, err := h.getOIDCClient(ctx)
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
 
 		token, err := oidccl.TokenSource(ctx, &oidc.Token{RefreshToken: refreshToken}).Token(ctx)
 		if err != nil {
-			return "", nil, nil
+			return nil, nil
 		}
 
 		session.Values[sessionKeyOIDCIDToken] = token.IDToken
@@ -163,7 +161,11 @@ func (h *Handler) authenticateExisting(r *http.Request, session *sessions.Sessio
 		idToken = &token.Claims
 	}
 
-	return rawIDToken, idToken, nil
+	// create a new token with refresh token stripped. We ultimtely don't want
+	// downstream consumers refreshing themselves, as it will likely invalidate
+	// ours. This should mainly be used during a HTTP request lifecycle too, so
+	// we would have done the job of refreshing if needed.
+	return &oidc.Token{IDToken: rawIDToken, Claims: *idToken, Expiry: idToken.Expiry.Time()}, nil
 }
 
 // authenticateCallback returns (returnTo, nil) if the user is authenticated,
@@ -290,22 +292,46 @@ func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
 
 // ClaimsFromContext returns the claims for the given request context
 func ClaimsFromContext(ctx context.Context) *oidc.Claims {
-	c, ok := ctx.Value(claimsContextKey{}).(*oidc.Claims)
+	tok, ok := ctx.Value(tokenContextKey{}).(*oidc.Token)
 	if !ok {
 		return nil
 	}
 
-	return c
+	return &tok.Claims
 }
 
 // RawIDTokenFromContext returns the raw JWT from the given request context
 func RawIDTokenFromContext(ctx context.Context) string {
-	c, ok := ctx.Value(idtokenContextKey{}).(string)
+	tok, ok := ctx.Value(tokenContextKey{}).(*oidc.Token)
 	if !ok {
 		return ""
 	}
 
-	return c
+	return tok.IDToken
+}
+
+var _ oidc.TokenSource = (*contextTokenSource)(nil)
+
+type contextTokenSource struct {
+	tok *oidc.Token
+}
+
+func (c *contextTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
+	if c == nil || c.tok == nil {
+		return nil, fmt.Errorf("no token in context")
+	}
+	return c.tok, nil
+}
+
+// TokenSourceFromContext returns a usable tokensource from this request context. The request
+// must have been wrapped with the middleware for this to be initialized. This token source is
+func TokenSourceFromContext(ctx context.Context) oidc.TokenSource {
+	tok, ok := ctx.Value(tokenContextKey{}).(*oidc.Token)
+	if !ok {
+		return &contextTokenSource{}
+	}
+
+	return &contextTokenSource{tok: tok}
 }
 
 func randomState() string {
