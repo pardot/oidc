@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"html/template"
 	"io"
 	"net"
 	"net/http"
@@ -16,20 +15,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Templates
 var (
-	tmplError = template.Must(template.New("").Parse(`
-	  <h1>Error</h1>
-		<hr>
-		{{.}}
-	`))
-
-	tmplTokenIssued = template.Must(template.New("").Parse(`
-	  <h1>Success</h1>
-		<hr>
-		Return to the terminal to continue.
-	`))
-
 	// RandomNonceGenerator generates a cryptographically-secure 128-bit random
 	// nonce, encoded into a base64 string. Use with WithNonceGenerator.
 	RandomNonceGenerator = func(ctx context.Context) (string, error) {
@@ -60,6 +46,8 @@ type LocalOIDCTokenSource struct {
 
 	portLow  int
 	portHigh int
+
+	renderer Renderer
 }
 
 type LocalOIDCTokenSourceOpt func(s *LocalOIDCTokenSource)
@@ -95,8 +83,9 @@ var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 //     // use token
 func NewSource(client *oidc.Client, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
 	s := &LocalOIDCTokenSource{
-		client: client,
-		opener: DetectOpener(),
+		client:   client,
+		opener:   DetectOpener(),
+		renderer: &renderer{},
 	}
 
 	for _, opt := range opts {
@@ -127,6 +116,13 @@ func WithPortRange(portLow int, portHigh int) LocalOIDCTokenSourceOpt {
 	}
 }
 
+// WithRenderer sets a customer renderer.
+func WithRenderer(renderer Renderer) LocalOIDCTokenSourceOpt {
+	return func(s *LocalOIDCTokenSource) {
+		s.renderer = renderer
+	}
+}
+
 // Token attempts to a fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
 func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
@@ -153,7 +149,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 			resultCh <- result{err: err}
 
 			w.WriteHeader(http.StatusBadRequest)
-			_ = tmplError.Execute(w, err.Error())
+			_ = s.renderer.RenderLocalTokenSourceError(w, err.Error())
 			return
 		}
 
@@ -163,7 +159,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 			resultCh <- result{err: err}
 
 			w.WriteHeader(http.StatusBadRequest)
-			_ = tmplError.Execute(w, err.Error())
+			_ = s.renderer.RenderLocalTokenSourceError(w, err.Error())
 			return
 		}
 
@@ -173,7 +169,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 			resultCh <- result{err: err}
 
 			w.WriteHeader(http.StatusBadRequest)
-			_ = tmplError.Execute(w, err.Error())
+			_ = s.renderer.RenderLocalTokenSourceError(w, err.Error())
 			return
 		}
 
@@ -181,12 +177,12 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 			// Callback has been invoked multiple times, which should not happen.
 			// Bomb out to avoid a blocking channel write and to float this as a bug.
 			w.WriteHeader(http.StatusBadRequest)
-			_ = tmplError.Execute(w, "callback invoked multiple times")
+			_ = s.renderer.RenderLocalTokenSourceError(w, "callback invoked multiple times")
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		_ = tmplTokenIssued.Execute(w, nil)
+		_ = s.renderer.RenderLocalTokenSourceTokenIssued(w)
 
 		resultCh <- result{code: code}
 	})
