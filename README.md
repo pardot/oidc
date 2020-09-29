@@ -1,3 +1,3 @@
-# deci
+# oidc
 
 Experimental OIDC/Webauthn server
