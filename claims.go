@@ -249,10 +249,10 @@ func (u UnixTime) MarshalJSON() ([]byte, error) {
 }
 
 func (u *UnixTime) UnmarshalJSON(b []byte) error {
-	p, err := strconv.ParseInt(string(b), 10, 64)
+	flt, err := strconv.ParseFloat(string(b), 64)
 	if err != nil {
 		return fmt.Errorf("failed to parse UnixTime: %v", err)
 	}
-	*u = UnixTime(p)
+	*u = UnixTime(int64(flt))
 	return nil
 }
