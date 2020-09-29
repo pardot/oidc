@@ -132,6 +132,23 @@ func TestIDTokenUnmarshaling(t *testing.T) {
 				Audience: Audience{"aud1", "aud2"},
 			},
 		},
+		{
+			Name: "scientific notation",
+			JSON: `{
+  "aud": "aud",
+  "exp": 1.601386279e+09,
+  "hello": "world",
+  "iss": "http://issuer"
+}`,
+			WantToken: Claims{
+				Issuer:   "http://issuer",
+				Audience: Audience{"aud"},
+				Expiry:   1601386279,
+				Extra: map[string]interface{}{
+					"hello": "world",
+				},
+			},
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			tok := Claims{}

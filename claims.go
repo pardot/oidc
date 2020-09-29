@@ -3,6 +3,7 @@ package oidc
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 	"time"
 )
@@ -249,10 +250,16 @@ func (u UnixTime) MarshalJSON() ([]byte, error) {
 }
 
 func (u *UnixTime) UnmarshalJSON(b []byte) error {
-	p, err := strconv.ParseInt(string(b), 10, 64)
+	// Default to round down (expire sooner)
+	flt, _, err := big.ParseFloat(string(b), 10, 64, big.ToNegativeInf)
 	if err != nil {
 		return fmt.Errorf("failed to parse UnixTime: %v", err)
 	}
-	*u = UnixTime(p)
+	var i = new(big.Int)
+	i, _ = flt.Int(i)
+	if err != nil {
+		return fmt.Errorf("failed to parse UnixTime: %v", err)
+	}
+	*u = UnixTime(i.Int64())
 	return nil
 }
