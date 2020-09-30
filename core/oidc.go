@@ -339,9 +339,14 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.C
 		AMR:      t.Authorization.AMR,
 		IssuedAt: oidc.NewUnixTime(t.now()),
 		AuthTime: oidc.NewUnixTime(t.authTime),
-		Nonce:    t.authReq.Nonce,
+		Nonce:    t.Nonce(),
 		Extra:    map[string]interface{}{},
 	}
+}
+
+// Nonce returns the originally passed nonce, if present
+func (t *TokenRequest) Nonce() string {
+	return t.authReq.Nonce
 }
 
 // TokenResponse is returned by the token endpoint handler, indicating what it
