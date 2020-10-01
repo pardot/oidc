@@ -346,7 +346,10 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.C
 
 // Nonce returns the originally passed nonce, if present
 func (t *TokenRequest) Nonce() string {
-	return t.authReq.Nonce
+	if t.authReq != nil {
+		return t.authReq.Nonce
+	}
+	return ""
 }
 
 // TokenResponse is returned by the token endpoint handler, indicating what it
