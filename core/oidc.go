@@ -455,6 +455,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		return nil, &httpError{Code: http.StatusInternalServerError, Message: "internal error", CauseMsg: "session authorization is nil"}
 	}
 
+	var nonce string
+	if sess.Request != nil {
+		nonce = sess.Request.Nonce
+	}
 	tr := &TokenRequest{
 		SessionID: sess.ID,
 		ClientID:  req.ClientID,
@@ -466,7 +470,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		GrantType:          req.GrantType,
 		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
 		IsRefresh:          isRefresh,
-		Nonce:              req.Nonce,
+		Nonce:              nonce,
 
 		authTime: sess.Authorization.AuthorizedAt,
 		authReq:  sess.Request,
