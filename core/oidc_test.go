@@ -293,9 +293,7 @@ func TestIDTokenPrefill(t *testing.T) {
 				},
 
 				authTime: now,
-				authReq: &sessAuthRequest{
-					Nonce: "nonce",
-				},
+				Nonce:    "nonce",
 
 				now: nowFn,
 			},
@@ -378,6 +376,7 @@ func TestToken(t *testing.T) {
 			Authorization: &sessAuthorization{},
 			ClientID:      clientID,
 			Expiry:        time.Now().Add(1 * time.Minute),
+			Request:       &sessAuthRequest{},
 		}
 
 		if err := putSession(context.Background(), smgr, sess); err != nil {
