@@ -311,7 +311,7 @@ type TokenRequest struct {
 	// IsRefresh is true if the token endpoint was called with the refresh token
 	// grant (i.e called with a refresh, rather than access token)
 	IsRefresh bool
-	// Nonce value the session sent, otherwise an empty string
+	// Nonce from the authentication request, if specified
 	Nonce string
 
 	authTime time.Time
