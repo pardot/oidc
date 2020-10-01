@@ -311,6 +311,8 @@ type TokenRequest struct {
 	// IsRefresh is true if the token endpoint was called with the refresh token
 	// grant (i.e called with a refresh, rather than access token)
 	IsRefresh bool
+	// Nonce value the session sent, otherwise an empty string
+	Nonce string
 
 	authTime time.Time
 	authReq  *sessAuthRequest
@@ -339,17 +341,9 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.C
 		AMR:      t.Authorization.AMR,
 		IssuedAt: oidc.NewUnixTime(t.now()),
 		AuthTime: oidc.NewUnixTime(t.authTime),
-		Nonce:    t.Nonce(),
+		Nonce:    t.Nonce,
 		Extra:    map[string]interface{}{},
 	}
-}
-
-// Nonce returns the originally passed nonce, if present
-func (t *TokenRequest) Nonce() string {
-	if t.authReq != nil {
-		return t.authReq.Nonce
-	}
-	return ""
 }
 
 // TokenResponse is returned by the token endpoint handler, indicating what it
@@ -472,6 +466,7 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		GrantType:          req.GrantType,
 		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
 		IsRefresh:          isRefresh,
+		Nonce:              req.Nonce,
 
 		authTime: sess.Authorization.AuthorizedAt,
 		authReq:  sess.Request,

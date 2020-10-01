@@ -25,6 +25,7 @@ type tokenRequest struct {
 	RedirectURI  string
 	ClientID     string
 	ClientSecret string
+	Nonce        string
 }
 
 // parseTokenRequest parses the information from a request for an access token.
@@ -39,6 +40,7 @@ func parseTokenRequest(req *http.Request) (*tokenRequest, error) {
 		RedirectURI:  req.FormValue("redirect_uri"),
 		Code:         req.FormValue("code"),
 		RefreshToken: req.FormValue("refresh_token"),
+		Nonce:        req.FormValue("nonce"),
 	}
 
 	// Auth the request

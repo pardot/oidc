@@ -293,9 +293,7 @@ func TestIDTokenPrefill(t *testing.T) {
 				},
 
 				authTime: now,
-				authReq: &sessAuthRequest{
-					Nonce: "nonce",
-				},
+				Nonce:    "nonce",
 
 				now: nowFn,
 			},
