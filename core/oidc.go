@@ -467,9 +467,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
 		IsRefresh:          isRefresh,
 		Nonce:              sess.Request.Nonce,
-		authTime:           sess.Authorization.AuthorizedAt,
-		authReq:            sess.Request,
-		now:                o.now,
+
+		authTime: sess.Authorization.AuthorizedAt,
+		authReq:  sess.Request,
+		now:      o.now,
 	}
 
 	tresp, err := handler(tr)
