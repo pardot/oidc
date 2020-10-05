@@ -292,7 +292,7 @@ func TestIDTokenPrefill(t *testing.T) {
 					ACR: "acr",
 				},
 
-				authTime: now,
+				AuthTime: now,
 				Nonce:    "nonce",
 
 				now: nowFn,
