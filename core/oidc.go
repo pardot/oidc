@@ -313,10 +313,11 @@ type TokenRequest struct {
 	IsRefresh bool
 	// Nonce from the authentication request, if specified
 	Nonce string
+	// AuthTime Time when the End-User authentication occurred
+	AuthTime time.Time
 
-	authTime time.Time
-	authReq  *sessAuthRequest
-	now      func() time.Time
+	authReq *sessAuthRequest
+	now     func() time.Time
 }
 
 // PrefillIDToken can be used to create a basic ID token containing all required
@@ -340,7 +341,7 @@ func (t *TokenRequest) PrefillIDToken(iss, sub string, expires time.Time) oidc.C
 		ACR:      t.Authorization.ACR,
 		AMR:      t.Authorization.AMR,
 		IssuedAt: oidc.NewUnixTime(t.now()),
-		AuthTime: oidc.NewUnixTime(t.authTime),
+		AuthTime: oidc.NewUnixTime(t.AuthTime),
 		Nonce:    t.Nonce,
 		Extra:    map[string]interface{}{},
 	}
@@ -467,10 +468,10 @@ func (o *OIDC) token(ctx context.Context, req *tokenRequest, handler func(req *T
 		SessionRefreshable: strsContains(sess.Authorization.Scopes, "offline_access"),
 		IsRefresh:          isRefresh,
 		Nonce:              sess.Request.Nonce,
+		AuthTime:           sess.Authorization.AuthorizedAt,
 
-		authTime: sess.Authorization.AuthorizedAt,
-		authReq:  sess.Request,
-		now:      o.now,
+		authReq: sess.Request,
+		now:     o.now,
 	}
 
 	tresp, err := handler(tr)
