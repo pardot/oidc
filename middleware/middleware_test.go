@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/sessions"
 	"github.com/pardot/oidc"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -269,10 +270,10 @@ func TestMiddleware_HappyPath(t *testing.T) {
 	oidcServer.validClientSecret = "valid-client-secret"
 
 	handler := &Handler{
-		Issuer:                   oidcServer.baseURL,
-		ClientID:                 oidcServer.validClientID,
-		ClientSecret:             oidcServer.validClientSecret,
-		SessionAuthenticationKey: []byte("super-secret-key"),
+		Issuer:       oidcServer.baseURL,
+		ClientID:     oidcServer.validClientID,
+		ClientSecret: oidcServer.validClientSecret,
+		SessionStore: sessions.NewCookieStore([]byte("super-secret-key")),
 	}
 
 	baseURL, cleanupServer := startServer(t, handler.Wrap(protected))
@@ -320,10 +321,10 @@ func TestContext(t *testing.T) {
 	oidcServer.validClientSecret = "valid-client-secret"
 
 	handler := &Handler{
-		Issuer:                   oidcServer.baseURL,
-		ClientID:                 oidcServer.validClientID,
-		ClientSecret:             oidcServer.validClientSecret,
-		SessionAuthenticationKey: []byte("super-secret-key"),
+		Issuer:       oidcServer.baseURL,
+		ClientID:     oidcServer.validClientID,
+		ClientSecret: oidcServer.validClientSecret,
+		SessionStore: sessions.NewCookieStore([]byte("super-secret-key")),
 	}
 
 	baseURL, cleanupServer := startServer(t, handler.Wrap(protected))
