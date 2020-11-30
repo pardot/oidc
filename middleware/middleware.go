@@ -47,28 +47,35 @@ type Handler struct {
 	// the returned token contains one of these.
 	ACRValues []string
 
-	// SessionAuthenticationKey is a 32 or 64 byte random key used to
-	// authenticate the session.
-	SessionAuthenticationKey []byte
-	// SessionEncryptionKey is a 16, 24 or 32 byte random key used to encrypt
-	// the session. If nil, the session is not encrypted.
-	SessionEncryptionKey []byte
+	// SessionStore is used to persist token information across requests. It
+	// must support sufficient storage for the ID and any refresh tokens. This
+	// must be provided.
+	SessionStore sessions.Store
 	// SessionName is a name used for the session. If empty, a default session
 	// name is used.
 	SessionName string
 
 	oidcClient     *oidc.Client
 	oidcClientInit sync.Once
-
-	sessionStore   sessions.Store
-	sessionStoreMu sync.Mutex
 }
 
 // Wrap returns an http.Handler that wraps the given http.Handler and
 // provides OIDC authentication.
 func (h *Handler) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session := h.getSession(r)
+		sessionName := h.SessionName
+		if sessionName == "" {
+			sessionName = defaultSessionName
+		}
+		if h.SessionStore == nil {
+			http.Error(w, "Uninitialized session store", http.StatusInternalServerError)
+			return
+		}
+		session, err := h.SessionStore.Get(r, sessionName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		// Check for a user that's already authenticated
 		tok, err := h.authenticateExisting(r, session)
@@ -243,32 +250,6 @@ func (h *Handler) startAuthentication(r *http.Request, session *sessions.Session
 	}
 
 	return oidccl.AuthCodeURL(state), nil
-}
-
-func (h *Handler) getSession(r *http.Request) *sessions.Session {
-	sessionName := h.SessionName
-	if sessionName == "" {
-		sessionName = defaultSessionName
-	}
-
-	if h.sessionStore != nil {
-		session, _ := h.sessionStore.Get(r, sessionName)
-		return session
-	}
-
-	h.sessionStoreMu.Lock()
-	defer h.sessionStoreMu.Unlock()
-
-	// Check again, holding lock
-	if h.sessionStore != nil {
-		session, _ := h.sessionStore.Get(r, sessionName)
-		return session
-	}
-
-	h.sessionStore = sessions.NewCookieStore(h.SessionAuthenticationKey, h.SessionEncryptionKey)
-
-	session, _ := h.sessionStore.Get(r, sessionName)
-	return session
 }
 
 func (h *Handler) getOIDCClient(ctx context.Context) (*oidc.Client, error) {
