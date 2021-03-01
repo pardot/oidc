@@ -116,7 +116,10 @@ func WithPortRange(portLow int, portHigh int) LocalOIDCTokenSourceOpt {
 	}
 }
 
-// WithRenderer sets a customer renderer.
+// WithRenderer sets a customer renderer. The renderer can optionally implement
+// the http.Handler interface. If it does, it will be called for all requests on
+// the local HTTP server that are not handled by the TokenSource. This can be
+// used to serve additional content the renderer depends on.
 func WithRenderer(renderer Renderer) LocalOIDCTokenSourceOpt {
 	return func(s *LocalOIDCTokenSource) {
 		s.renderer = renderer
@@ -186,6 +189,11 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 
 		resultCh <- result{code: code}
 	})
+
+	if h, ok := s.renderer.(http.Handler); ok {
+		mux.Handle("/", h)
+	}
+
 	httpSrv := &http.Server{Handler: mux}
 
 	ln, err := newLocalTCPListenerInRange(s.portLow, s.portHigh)
