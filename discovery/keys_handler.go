@@ -51,6 +51,8 @@ func (h *KeysHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		h.lastKeysUpdate = time.Now()
 	}
 
+	w.Header().Set("Content-Type", "application/jwk-set+json")
+
 	if err := json.NewEncoder(w).Encode(h.currKeys); err != nil {
 		http.Error(w, "Internal Error", http.StatusInternalServerError)
 		return
