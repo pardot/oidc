@@ -12,6 +12,9 @@ import (
 type Verifier struct {
 	md *discovery.ProviderMetadata
 	ks KeySource
+
+	// clock returns the current time. time.Now is used by default.
+	clock func() time.Time
 }
 
 func DiscoverVerifier(ctx context.Context, issuer string) (*Verifier, error) {
@@ -35,9 +38,15 @@ func NewVerifier(issuer string, keySource KeySource) *Verifier {
 	}
 }
 
-type verifyCfg struct{}
+type VerifyOpt func(*Verifier)
 
-type VerifyOpt func(v *verifyCfg)
+// WithClock provides a custom clock that is used to determine the current time
+// when verifying tokens.
+func WithClock(clock func() time.Time) VerifyOpt {
+	return func(v *Verifier) {
+		v.clock = clock
+	}
+}
 
 func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, opts ...VerifyOpt) (*Claims, error) {
 	tok, err := jwt.ParseSigned(raw)
@@ -65,10 +74,15 @@ func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, o
 		return nil, fmt.Errorf("verifying token claims: %v", err)
 	}
 
+	clock := time.Now
+	if v.clock != nil {
+		clock = v.clock
+	}
+
 	if err := cl.Validate(jwt.Expected{
 		Issuer:   v.md.Issuer,
 		Audience: jwt.Audience([]string{audience}),
-		Time:     time.Now(),
+		Time:     clock(),
 	}); err != nil {
 		return nil, fmt.Errorf("claim validation: %v", err)
 	}
