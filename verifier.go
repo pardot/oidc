@@ -12,9 +12,6 @@ import (
 type Verifier struct {
 	md *discovery.ProviderMetadata
 	ks KeySource
-
-	// clock returns the current time. time.Now is used by default.
-	clock func() time.Time
 }
 
 func DiscoverVerifier(ctx context.Context, issuer string) (*Verifier, error) {
@@ -38,17 +35,29 @@ func NewVerifier(issuer string, keySource KeySource) *Verifier {
 	}
 }
 
-type VerifyOpt func(*Verifier)
+type verifyCfg struct {
+	// clock returns the current time. time.Now is used by default.
+	clock func() time.Time
+}
+
+type VerifyOpt func(*verifyCfg)
 
 // WithClock provides a custom clock that is used to determine the current time
 // when verifying tokens.
 func WithClock(clock func() time.Time) VerifyOpt {
-	return func(v *Verifier) {
-		v.clock = clock
+	return func(c *verifyCfg) {
+		c.clock = clock
 	}
 }
 
 func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, opts ...VerifyOpt) (*Claims, error) {
+	cfg := &verifyCfg{
+		clock: time.Now,
+	}
+	for _, o := range opts {
+		o(cfg)
+	}
+
 	tok, err := jwt.ParseSigned(raw)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing raw: %v", err)
@@ -74,15 +83,10 @@ func (v *Verifier) VerifyRaw(ctx context.Context, audience string, raw string, o
 		return nil, fmt.Errorf("verifying token claims: %v", err)
 	}
 
-	clock := time.Now
-	if v.clock != nil {
-		clock = v.clock
-	}
-
 	if err := cl.Validate(jwt.Expected{
 		Issuer:   v.md.Issuer,
 		Audience: jwt.Audience([]string{audience}),
-		Time:     clock(),
+		Time:     cfg.clock(),
 	}); err != nil {
 		return nil, fmt.Errorf("claim validation: %v", err)
 	}
