@@ -2,7 +2,17 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"regexp"
+)
+
+var (
+	// reValidPublicRedirectUri is a fairly strict regular expression that must
+	// match against the redirect URI for a Public client. It intentionally may
+	// not match all URLs that are technically valid, but is it meant to match
+	// all commonly constructed ones, without inadvertently falling victim to
+	// parser bugs or parser inconsistencies (e.g.,
+	// https://www.blackhat.com/docs/us-17/thursday/us-17-Tsai-A-New-Era-Of-SSRF-Exploiting-URL-Parser-In-Trending-Programming-Languages.pdf)
+	reValidPublicRedirectURI = regexp.MustCompile(`\Ahttp://(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?(?:|/[A-Za-z0-9./_-]{0,1000})\z`)
 )
 
 type client struct {
@@ -49,7 +59,7 @@ func (s staticClients) ValidateClientRedirectURI(clientID, redirectURI string) (
 	if cl.RedirectURL == redirectURI {
 		return true, nil
 	}
-	if cl.Public && strings.HasPrefix(redirectURI, "http://localhost") { // hacky but probably fine here
+	if cl.Public && reValidPublicRedirectURI.MatchString(redirectURI) {
 		return true, nil
 	}
 	return false, nil

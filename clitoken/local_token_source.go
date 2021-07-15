@@ -217,7 +217,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	// we need to update this each invocation
-	s.client.SetRedirectURL(fmt.Sprintf("http://localhost:%d/callback", tcpAddr.Port))
+	s.client.SetRedirectURL(fmt.Sprintf("http://127.0.0.1:%d/callback", tcpAddr.Port))
 
 	authURL := s.client.AuthCodeURL(state, authCodeOpts...)
 
