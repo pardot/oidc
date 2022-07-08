@@ -37,7 +37,7 @@ type CommandOpener struct {
 }
 
 func (o *CommandOpener) Open(ctx context.Context, url string) error {
-	_, _ = fmt.Fprintf(os.Stderr, "Opening %s, please return here when authentication complete.", url)
+	_, _ = fmt.Fprintf(os.Stderr, "Opening %s, please return here when authentication complete.\n", url)
 	cmd := exec.CommandContext(ctx, o.CommandName, url)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
