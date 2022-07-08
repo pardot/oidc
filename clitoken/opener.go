@@ -37,6 +37,7 @@ type CommandOpener struct {
 }
 
 func (o *CommandOpener) Open(ctx context.Context, url string) error {
+	_, _ = fmt.Fprintf(os.Stderr, "Opening %s, please return here when authentication complete.", url)
 	cmd := exec.CommandContext(ctx, o.CommandName, url)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
@@ -48,6 +49,6 @@ func (o *CommandOpener) Open(ctx context.Context, url string) error {
 type EchoOpener struct{}
 
 func (o *EchoOpener) Open(ctx context.Context, url string) error {
-	_, err := fmt.Printf("To continue, open this URL in a browser: %s\n", url)
+	_, err := fmt.Fprintf(os.Stderr, "To continue, open this URL in a browser: %s\n", url)
 	return err
 }
