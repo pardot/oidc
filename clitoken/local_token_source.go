@@ -126,6 +126,14 @@ func WithRenderer(renderer Renderer) LocalOIDCTokenSourceOpt {
 	}
 }
 
+// WithOpener sets a custom handler for launching URLs on the user's system.
+// This is used to kick them in to the auth flow.
+func WithOpener(opener Opener) LocalOIDCTokenSourceOpt {
+	return func(s *LocalOIDCTokenSource) {
+		s.opener = opener
+	}
+}
+
 // Token attempts to a fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
 func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {

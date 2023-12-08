@@ -48,6 +48,6 @@ func (o *CommandOpener) Open(ctx context.Context, url string) error {
 type EchoOpener struct{}
 
 func (o *EchoOpener) Open(ctx context.Context, url string) error {
-	_, err := fmt.Printf("To continue, open this URL in a browser: %s\n", url)
+	_, err := fmt.Fprintf(os.Stderr, "To continue, open this URL in a browser: %s\n", url)
 	return err
 }
