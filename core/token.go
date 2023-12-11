@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	corev1 "github.com/pardot/oidc/proto/core/v1"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/protobuf/proto"
 )
 
 const (

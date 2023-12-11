@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -97,11 +95,6 @@ func (m *mockSmgr) GetSession(_ context.Context, sessionID string, into Session)
 			return false, fmt.Errorf("want stored session v2, got: %s", v.Version)
 		}
 		jb, err = json.Marshal(v)
-	case proto.Message:
-		m.t.Log("original is proto.Message")
-		js, e := (&jsonpb.Marshaler{}).MarshalToString(v)
-		jb = []byte(js)
-		err = e
 	default:
 		m.t.Log("original is not proto.Message")
 		return false, fmt.Errorf("unexpected type: %T", m.data)
