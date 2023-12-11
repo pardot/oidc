@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/pardot/oidc/signer"
-	"gopkg.in/square/go-jose.v2"
 )
 
 // contains helpers used by multiple tests

@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/pardot/oidc/signer"
-	"gopkg.in/square/go-jose.v2"
 )
 
 func mustInitSigner() *signer.StaticSigner {

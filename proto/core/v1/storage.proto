@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package oidc.core.v1;
+option go_package = ".;core";
+
+// StoredToken represents the session-persisted state of a token
+// we issued to a user
+message StoredToken {
+  // bcrypted version of the token that was issued to the user
+  bytes bcrypted = 1 [ json_name = "bcrypted" ];
+  // when this token expires
+  google.protobuf.Timestamp expires_at = 2 [ json_name = "expires_at" ];
+}
+
+// UserToken is the value we issue directly to users. The message is serialized,
+// then base64 encoded to make up the issued version.
+message UserToken {
+  // the ID of the session this token corresponds to
+  string session_id = 1 [ json_name = "session_id" ];
+  // the token itself, to be compared to the bcrypt version on the backend
+  bytes token = 2 [ json_name = "token" ];
+}

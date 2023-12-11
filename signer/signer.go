@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"gopkg.in/square/go-jose.v2"
+	"github.com/go-jose/go-jose/v3"
 )
 
 func sign(_ context.Context, signingKey jose.SigningKey, data []byte) (signed []byte, err error) {

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/pardot/oidc"
 	"github.com/pardot/oidc/oauth2"
-	"gopkg.in/square/go-jose.v2"
 )
 
 // Signer is used for signing identity tokens

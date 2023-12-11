@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/pardot/oidc/discovery"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 type Verifier struct {

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -16,12 +15,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/pardot/oidc"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 type PassphrasePromptFunc func(prompt string) (passphrase string, err error)
@@ -160,7 +158,7 @@ func (e *EncryptedFileCredentialCache) Get(issuer string, clientID string, scope
 	}
 
 	filename := path.Join(dir, e.cacheFilename(issuer, clientID, scopes, acrValues))
-	contents, err := ioutil.ReadFile(filename)
+	contents, err := os.ReadFile(filename)
 	if os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {
@@ -248,7 +246,7 @@ func (e *EncryptedFileCredentialCache) Set(issuer string, clientID string, scope
 	_, _ = buf.Write(ciphertext)
 
 	filename := path.Join(dir, e.cacheFilename(issuer, clientID, scopes, acrValues))
-	if err := ioutil.WriteFile(filename, buf.Bytes(), 0600); err != nil {
+	if err := os.WriteFile(filename, buf.Bytes(), 0600); err != nil {
 		return errors.Wrapf(err, "failed to write file %q", filename)
 	}
 
@@ -262,11 +260,15 @@ func (e *EncryptedFileCredentialCache) Available() bool {
 func (e *EncryptedFileCredentialCache) resolveDir() (string, error) {
 	dir := e.Dir
 	if dir == "" {
-		dir = "~/.oidc-cache"
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("could not find user cache dir: %w", err)
+		}
+		dir = path.Join(cacheDir, ".oidc-cache")
 	}
 
 	if strings.HasPrefix(dir, "~/") {
-		home, err := homedir.Dir()
+		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", errors.Wrap(err, "unable to determine home directory")
 		}
@@ -318,7 +320,7 @@ func (e *EncryptedFileCredentialCache) promptFuncOrDefault() PassphrasePromptFun
 		}
 
 		fmt.Fprintf(os.Stderr, "%s: ", prompt)
-		passphrase, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
 		if err != nil {
 			return "", err
 		}

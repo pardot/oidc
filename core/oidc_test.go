@@ -15,7 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pardot/oidc"
 	"github.com/pardot/oidc/oauth2"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
+	corev1 "github.com/pardot/oidc/proto/core/v1"
 )
 
 func TestStartAuthorization(t *testing.T) {
@@ -79,8 +79,7 @@ func TestStartAuthorization(t *testing.T) {
 				}
 				if sess == nil {
 					t.Error("session should not be nil")
-				}
-				if sess.Request == nil {
+				} else if sess.Request == nil {
 					t.Error("request in session should not be nil")
 				}
 			},
@@ -1013,7 +1012,7 @@ func TestUserinfo(t *testing.T) {
 	}
 }
 
-func mustMarshal(u *corev1beta1.UserToken) string {
+func mustMarshal(u *corev1.UserToken) string {
 	t, err := marshalToken(u)
 	if err != nil {
 		panic(err)
