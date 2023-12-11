@@ -10,12 +10,6 @@ build:
 test:
 	go test -v ./...
 
-lint: bin/golangci-lint-1.23.8
-	./bin/golangci-lint-1.23.8 run ./...
-
-bin/golangci-lint-1.23.8:
-	./hack/fetch-golangci-lint.sh
-
 proto: proto/core/v1/storage.pb.go
 
 proto/core/v1/storage.pb.go: proto/core/v1/storage.proto
