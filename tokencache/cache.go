@@ -16,12 +16,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/pardot/oidc"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 type PassphrasePromptFunc func(prompt string) (passphrase string, err error)
@@ -266,7 +265,7 @@ func (e *EncryptedFileCredentialCache) resolveDir() (string, error) {
 	}
 
 	if strings.HasPrefix(dir, "~/") {
-		home, err := homedir.Dir()
+		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", errors.Wrap(err, "unable to determine home directory")
 		}
@@ -318,7 +317,7 @@ func (e *EncryptedFileCredentialCache) promptFuncOrDefault() PassphrasePromptFun
 		}
 
 		fmt.Fprintf(os.Stderr, "%s: ", prompt)
-		passphrase, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
 		if err != nil {
 			return "", err
 		}
