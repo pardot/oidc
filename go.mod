@@ -4,8 +4,8 @@ go 1.21
 
 require (
 	github.com/go-jose/go-jose/v3 v3.0.1
-	github.com/golang/protobuf v1.3.2
-	github.com/google/go-cmp v0.5.0
+	github.com/golang/protobuf v1.5.0
+	github.com/google/go-cmp v0.5.5
 	github.com/gorilla/sessions v1.2.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/pkg/errors v0.8.1
@@ -13,6 +13,7 @@ require (
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/text v0.3.2
+	google.golang.org/protobuf v1.31.0
 )
 
 require (

@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
 // Session represents an invidual user session, bound to a given client.
@@ -153,11 +149,8 @@ func (*rawSession) Expiry() time.Time {
 }
 
 func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sessionV2, error) {
-	// because we might have data in the DB that requires different JSON
-	// parsers, first try and grab the raw data to play with to avoid multiple
-	// roundtrips
-	var raw rawSession
-	found, err := sm.GetSession(ctx, sessionID, &raw)
+	vsess := versionedSession{}
+	found, err := sm.GetSession(ctx, sessionID, &vsess)
 	if err != nil {
 		return nil, fmt.Errorf("getting raw session data: %v", err)
 	}
@@ -165,116 +158,15 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sess
 		return nil, nil
 	}
 
-	// phase 1, read in to the new style and see if it matches.
-	vsess := versionedSession{}
-	if err = json.Unmarshal(raw.RawMessage, &vsess); err != nil {
-		return nil, fmt.Errorf("unmarshaling into versioned session: %v", err)
-	}
-	if vsess.Version == sessionVer2 {
-		// got the new one, unserialize the session data and peel out
-		sess := sessionV2{}
-		if err := json.Unmarshal(vsess.Session, &sess); err != nil {
-			return nil, fmt.Errorf("unmarshaling session: %v", err)
-		}
-		return &sess, nil
+	if vsess.Version != sessionVer2 {
+		return nil, fmt.Errorf("only session version %s supported, but found %s", sessionVer2, vsess.Version)
 	}
 
-	// if we get here, we're probably working with the old data. Unmarshal it
-	// using jsonpb.
-	sessv1 := corev1beta1.Session{}
-	if err := jsonpb.UnmarshalString(string(raw.RawMessage), &sessv1); err != nil {
-		return nil, fmt.Errorf("unmarshaling v1 jsonpb: %v", err)
+	sess := sessionV2{}
+	if err := json.Unmarshal(vsess.Session, &sess); err != nil {
+		return nil, fmt.Errorf("unmarshaling session: %v", err)
 	}
-
-	// do a quick sanity check that the data shape is right,
-
-	if sessv1.Id == "" {
-		return nil, fmt.Errorf("apparent proto session has no ID")
-	}
-
-	// map the V1 into the V2
-
-	var sstage sessionStage
-	switch sessv1.Stage {
-	case corev1beta1.Session_REQUESTED:
-		sstage = sessionStageRequested
-	case corev1beta1.Session_CODE:
-		sstage = sessionStageCode
-	case corev1beta1.Session_ACCESS_TOKEN_ISSUED:
-		sstage = sessionStageAccessTokenIssued
-	case corev1beta1.Session_REFRESHABLE:
-		sstage = sessionStageRefreshable
-	default:
-		return nil, fmt.Errorf("unknown session stage: %v", sessv1.Stage)
-	}
-
-	exp, _ := ptypes.Timestamp(sessv1.ExpiresAt)
-
-	sessv2 := sessionV2{
-		ID:               sessv1.Id,
-		Stage:            sstage,
-		ClientID:         sessv1.ClientId,
-		AuthCodeRedeemed: sessv1.AuthCodeRedeemed,
-		Expiry:           exp,
-	}
-
-	if sessv1.Request != nil {
-		var respType authRequestResponseType
-		switch sessv1.Request.ResponseType {
-		case corev1beta1.AuthRequest_UNKNOWN:
-			respType = authRequestResponseTypeUnknown
-		case corev1beta1.AuthRequest_CODE:
-			respType = authRequestResponseTypeCode
-		case corev1beta1.AuthRequest_TOKEN:
-			respType = authRequestResponseTypeToken
-		default:
-			return nil, fmt.Errorf("unknown response type: %v", sessv1.Stage)
-		}
-
-		sessv2.Request = &sessAuthRequest{
-			RedirectURI:  sessv1.Request.RedirectUri,
-			State:        sessv1.Request.State,
-			Scopes:       sessv1.Request.Scopes,
-			Nonce:        sessv1.Request.Nonce,
-			ResponseType: respType,
-		}
-	}
-
-	if sessv1.Authorization != nil {
-		aat, _ := ptypes.Timestamp(sessv1.Authorization.AuthorizedAt)
-		sessv2.Authorization = &sessAuthorization{
-			Scopes:       sessv1.Authorization.Scopes,
-			ACR:          sessv1.Authorization.Acr,
-			AMR:          sessv1.Authorization.Amr,
-			AuthorizedAt: aat,
-		}
-	}
-
-	if sessv1.AuthCode != nil {
-		exp, _ := ptypes.Timestamp(sessv1.AuthCode.ExpiresAt)
-		sessv2.AuthCode = &accessToken{
-			Bcrypted: sessv1.AuthCode.Bcrypted,
-			Expiry:   exp,
-		}
-	}
-
-	if sessv1.AccessToken != nil {
-		exp, _ := ptypes.Timestamp(sessv1.AccessToken.ExpiresAt)
-		sessv2.AccessToken = &accessToken{
-			Bcrypted: sessv1.AccessToken.Bcrypted,
-			Expiry:   exp,
-		}
-	}
-
-	if sessv1.RefreshToken != nil {
-		exp, _ := ptypes.Timestamp(sessv1.RefreshToken.ExpiresAt)
-		sessv2.RefreshToken = &accessToken{
-			Bcrypted: sessv1.RefreshToken.Bcrypted,
-			Expiry:   exp,
-		}
-	}
-
-	return &sessv2, nil
+	return &sess, nil
 }
 
 func putSession(ctx context.Context, sm SessionManager, sess *sessionV2) error {

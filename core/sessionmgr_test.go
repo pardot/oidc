@@ -5,19 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/google/go-cmp/cmp"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
 )
 
 func TestVersionedSessions(t *testing.T) {
-	now := time.Now()
-	pnow, _ := ptypes.TimestampProto(now)
-
 	for _, tc := range []struct {
 		Name string
 		Data interface{}
@@ -33,26 +27,6 @@ func TestVersionedSessions(t *testing.T) {
 			},
 			Want: &sessionV2{
 				ID: "test-id",
-			},
-		},
-		{
-			Name: "v1 format",
-			Data: &corev1beta1.Session{
-				Id:        "test-1",
-				ExpiresAt: pnow,
-				AuthCode: &corev1beta1.StoredToken{
-					Bcrypted:  []byte("binary-data"),
-					ExpiresAt: pnow,
-				},
-			},
-			Want: &sessionV2{
-				ID:    "test-1",
-				Stage: "requested",
-				AuthCode: &accessToken{
-					Bcrypted: []byte("binary-data"),
-					Expiry:   now,
-				},
-				Expiry: now,
 			},
 		},
 	} {

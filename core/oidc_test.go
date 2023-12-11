@@ -15,7 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pardot/oidc"
 	"github.com/pardot/oidc/oauth2"
-	corev1beta1 "github.com/pardot/oidc/proto/core/v1beta1"
+	corev1 "github.com/pardot/oidc/proto/core/v1"
 )
 
 func TestStartAuthorization(t *testing.T) {
@@ -1013,7 +1013,7 @@ func TestUserinfo(t *testing.T) {
 	}
 }
 
-func mustMarshal(u *corev1beta1.UserToken) string {
+func mustMarshal(u *corev1.UserToken) string {
 	t, err := marshalToken(u)
 	if err != nil {
 		panic(err)
