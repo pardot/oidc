@@ -63,24 +63,25 @@ var _ oidc.TokenSource = (*LocalOIDCTokenSource)(nil)
 // cached.
 //
 // Example:
-//     ctx := context.TODO()
 //
-//     client, err := oidc.DiscoverClient(ctx, StagingURL, ClientID, ClientSecret, "")
-//     if err != nil {
-//       // handle err
-//     }
+//	ctx := context.TODO()
 //
-//     ts, err := NewLocalOIDCTokenSource(client, clientID, clientSecret)
-//     if err != nil {
-//       // handle err
-//     }
+//	client, err := oidc.DiscoverClient(ctx, StagingURL, ClientID, ClientSecret, "")
+//	if err != nil {
+//	  // handle err
+//	}
 //
-//     token, err := ts.Token(ctx)
-//     if err != nil {
-//       // handle error
-//     }
+//	ts, err := NewLocalOIDCTokenSource(client, clientID, clientSecret)
+//	if err != nil {
+//	  // handle err
+//	}
 //
-//     // use token
+//	token, err := ts.Token(ctx)
+//	if err != nil {
+//	  // handle error
+//	}
+//
+//	// use token
 func NewSource(client *oidc.Client, opts ...LocalOIDCTokenSourceOpt) (*LocalOIDCTokenSource, error) {
 	s := &LocalOIDCTokenSource{
 		client:   client,

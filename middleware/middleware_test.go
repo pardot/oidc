@@ -7,7 +7,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -368,7 +368,7 @@ func TestContext(t *testing.T) {
 func checkResponse(t *testing.T, resp *http.Response) (body []byte) {
 	t.Helper()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}

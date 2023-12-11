@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -159,7 +158,7 @@ func (e *EncryptedFileCredentialCache) Get(issuer string, clientID string, scope
 	}
 
 	filename := path.Join(dir, e.cacheFilename(issuer, clientID, scopes, acrValues))
-	contents, err := ioutil.ReadFile(filename)
+	contents, err := os.ReadFile(filename)
 	if os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {
@@ -247,7 +246,7 @@ func (e *EncryptedFileCredentialCache) Set(issuer string, clientID string, scope
 	_, _ = buf.Write(ciphertext)
 
 	filename := path.Join(dir, e.cacheFilename(issuer, clientID, scopes, acrValues))
-	if err := ioutil.WriteFile(filename, buf.Bytes(), 0600); err != nil {
+	if err := os.WriteFile(filename, buf.Bytes(), 0600); err != nil {
 		return errors.Wrapf(err, "failed to write file %q", filename)
 	}
 

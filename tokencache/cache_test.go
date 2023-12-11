@@ -1,7 +1,6 @@
 package tokencache
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -23,7 +22,7 @@ func TestKeychainCredentialCache(t *testing.T) {
 }
 
 func TestEncryptedFileCredentialCache(t *testing.T) {
-	dir, err := ioutil.TempDir("", "cachetest")
+	dir, err := os.MkdirTemp("", "cachetest")
 	if err != nil {
 		t.Fatal(err)
 	}

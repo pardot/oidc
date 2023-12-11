@@ -133,21 +133,6 @@ type sessAuthorization struct {
 	AuthorizedAt time.Time `json:"authorized_at,omitempty"`
 }
 
-// we need something that looks like the interface we can pass in to get, but
-// captures the bare information. The methods should never be called in this
-// usage, so we should be OK.
-type rawSession struct {
-	json.RawMessage
-}
-
-func (*rawSession) ID() string {
-	panic("should not be called")
-}
-
-func (*rawSession) Expiry() time.Time {
-	panic("should not be called")
-}
-
 func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sessionV2, error) {
 	vsess := versionedSession{}
 	found, err := sm.GetSession(ctx, sessionID, &vsess)

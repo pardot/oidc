@@ -79,8 +79,7 @@ func TestStartAuthorization(t *testing.T) {
 				}
 				if sess == nil {
 					t.Error("session should not be nil")
-				}
-				if sess.Request == nil {
+				} else if sess.Request == nil {
 					t.Error("request in session should not be nil")
 				}
 			},
