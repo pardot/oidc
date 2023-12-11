@@ -44,7 +44,11 @@ func writeError(w http.ResponseWriter, req *http.Request, err error) error {
 		if err.WWWAuthenticate != "" {
 			w.Header().Add("WWW-Authenticate", err.WWWAuthenticate)
 		}
-		http.Error(w, m, err.Code)
+		code := err.Code
+		if code == 0 {
+			code = http.StatusInternalServerError
+		}
+		http.Error(w, m, code)
 
 	case *oauth2.TokenError:
 		w.Header().Add("Content-Type", "application/json;charset=UTF-8")
