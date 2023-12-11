@@ -260,7 +260,11 @@ func (e *EncryptedFileCredentialCache) Available() bool {
 func (e *EncryptedFileCredentialCache) resolveDir() (string, error) {
 	dir := e.Dir
 	if dir == "" {
-		dir = "~/.oidc-cache"
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("could not find user cache dir: %w", err)
+		}
+		dir = path.Join(cacheDir, ".oidc-cache")
 	}
 
 	if strings.HasPrefix(dir, "~/") {
