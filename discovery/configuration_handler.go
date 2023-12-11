@@ -3,7 +3,7 @@ package discovery
 import (
 	"net/http"
 
-	"gopkg.in/square/go-jose.v2/json"
+	"github.com/go-jose/go-jose/v3/json"
 )
 
 var _ http.Handler = (*ConfigurationHandler)(nil)
