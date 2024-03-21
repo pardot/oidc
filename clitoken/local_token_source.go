@@ -155,7 +155,7 @@ func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	mux := http.NewServeMux()
 
 	var calls int32
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /callback", func(w http.ResponseWriter, r *http.Request) {
 		if errMsg := r.FormValue("error"); errMsg != "" {
 			err := fmt.Errorf("%s: %s", errMsg, r.FormValue("error_description"))
 			resultCh <- result{err: err}
