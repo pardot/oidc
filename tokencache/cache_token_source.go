@@ -92,7 +92,7 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	var newToken *oidc.Token
-	if token != nil && token.Valid() && TokenWithinGracePeriod(token) {
+	if token != nil && token.Valid() && !TokenWithinGracePeriod(token) {
 		return token, nil
 	} else if token != nil && token.RefreshToken != "" {
 		// we have an expired token, try and refresh if we can.
