@@ -15,8 +15,7 @@ import (
 
 const (
 	// ScopeOfflineAccess requests a refresh token
-	ScopeOfflineAccess         = "offline_access"
-	TokenExpirationGracePeriod = time.Duration(30 * time.Second)
+	ScopeOfflineAccess = "offline_access"
 )
 
 type KeySource interface {
@@ -158,11 +157,6 @@ func (t *Token) Valid() bool {
 	// TODO - nbf claim?
 	return t.Claims.Expiry.Time().After(time.Now()) &&
 		t.IDToken != ""
-}
-
-func (t *Token) WithinGracePeriod() bool {
-	gracePeriodStart := t.Claims.Expiry.Time().Add(-TokenExpirationGracePeriod)
-	return gracePeriodStart.Before(time.Now()) && t.Valid()
 }
 
 // Type of the token
