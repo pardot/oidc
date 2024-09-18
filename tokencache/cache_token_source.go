@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	TokenExpirationGracePeriod = time.Duration(30 * time.Second)
+	tokenExpirationGracePeriod = time.Duration(30 * time.Second)
 )
 
 type cachingTokenSource struct {
@@ -121,6 +121,6 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 }
 
 func tokenWithinGracePeriod(token *oidc.Token) bool {
-	gracePeriodStart := token.Claims.Expiry.Time().Add(-TokenExpirationGracePeriod)
+	gracePeriodStart := token.Claims.Expiry.Time().Add(-tokenExpirationGracePeriod)
 	return gracePeriodStart.Before(time.Now()) && token.Valid()
 }
