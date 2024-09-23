@@ -3,8 +3,13 @@ package tokencache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pardot/oidc"
+)
+
+const (
+	tokenExpirationGracePeriod = time.Duration(30 * time.Second)
 )
 
 type cachingTokenSource struct {
@@ -87,7 +92,7 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	var newToken *oidc.Token
-	if token != nil && token.Valid() {
+	if token != nil && token.Valid() && !tokenWithinGracePeriod(token) {
 		return token, nil
 	} else if token != nil && token.RefreshToken != "" {
 		// we have an expired token, try and refresh if we can.
@@ -113,4 +118,9 @@ func (c *cachingTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	}
 
 	return newToken, nil
+}
+
+func tokenWithinGracePeriod(token *oidc.Token) bool {
+	gracePeriodStart := token.Claims.Expiry.Time().Add(-tokenExpirationGracePeriod)
+	return gracePeriodStart.Before(time.Now()) && token.Valid()
 }
