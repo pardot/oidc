@@ -1,8 +1,11 @@
 run:
-  deadline: 5m
+  timeout: 5m
 
 output:
-  format: colored-line-number
+  formats:
+    text:
+      path: stdout
+      colors: true
 
 issues:
   exclude-use-default: false
