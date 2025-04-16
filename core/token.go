@@ -45,14 +45,16 @@ func newToken(sessID string, expires time.Time) (*corev1.UserToken, *accessToken
 // token. if the user token value hashes to the same value on the server.
 func tokensMatch(user *corev1.UserToken, stored *accessToken) (bool, error) {
 	err := bcrypt.CompareHashAndPassword(stored.Bcrypted, user.Token)
-	if err == nil {
+	switch err {
+	case nil:
 		// no error in comparison, they match
 		return true, nil
-	} else if err == bcrypt.ErrMismatchedHashAndPassword {
+	case bcrypt.ErrMismatchedHashAndPassword:
 		// they do not match, this isn't an error per se.
 		return false, nil
+	default:
+		return false, fmt.Errorf("failed comparing tokens: %w", err)
 	}
-	return false, fmt.Errorf("failed comparing tokens: %w", err)
 }
 
 // marshalToken returns a user-friendly version of the token. This is the base64
