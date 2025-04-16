@@ -1063,7 +1063,7 @@ func matchHTTPErrStatus(code int) func(error) bool {
 	}
 }
 
-func matchAnyErr() func(error) bool { // nolint:unused,varcheck,deadcode
+func matchAnyErr() func(error) bool { // nolint:unused
 	return func(err error) bool {
 		return err != nil
 	}

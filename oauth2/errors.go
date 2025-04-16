@@ -6,7 +6,7 @@ import "fmt"
 type TokenErrorCode string
 
 // https://tools.ietf.org/html/rfc6749#section-5.2
-// nolint:unused,varcheck,deadcode
+// nolint:unused
 const (
 	// TokenErrorCodeInvalidRequest: The request is missing a required
 	// parameter, includes an unsupported parameter value (other than grant
