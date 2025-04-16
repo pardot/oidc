@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -5,23 +7,38 @@ output:
   formats:
     text:
       path: stdout
-      colors: true
-
-issues:
-  exclude-use-default: false
-  exclude:
-    - "exported \\w+ (\\S*['.]*)([a-zA-Z'.*]*) should have comment( \\(or a comment on this block\\))? or be unexported"
-    - "Error return value of .((os\\.)?std(out|err)\\..*|.*Close|.*Flush|os\\.Remove(All)?|.*printf?|os\\.(Un)?Setenv). is not checked"
-    - "package-comments: should have a package comment"
-    - "unused-parameter: parameter '\\w+' seems to be unused, consider removing or renaming it as _"
 
 linters:
   enable:
     - errcheck
     - revive
-    - goimports
     - govet
     - misspell
     - staticcheck
     - unused
     - unparam
+  exclusions:
+    generated: lax
+    rules:
+      - path: (.+)\.go$
+        text: exported \w+ (\S*['.]*)([a-zA-Z'.*]*) should have comment( \(or a comment on this block\))? or be unexported
+      - path: (.+)\.go$
+        text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|os\.(Un)?Setenv). is not checked
+      - path: (.+)\.go$
+        text: 'package-comments: should have a package comment'
+      - path: (.+)\.go$
+        text: 'unused-parameter: parameter ''\w+'' seems to be unused, consider removing or renaming it as _'
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
