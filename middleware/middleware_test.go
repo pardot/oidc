@@ -260,7 +260,7 @@ func (s *mockOIDCServer) handleKeys(w http.ResponseWriter, r *http.Request) {
 
 func TestMiddleware_HappyPath(t *testing.T) {
 	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(fmt.Sprintf("sub: %s", ClaimsFromContext(r.Context()).Subject)))
+		_, _ = fmt.Fprintf(w, "sub: %s", ClaimsFromContext(r.Context()).Subject)
 	})
 
 	oidcServer, cleanupOIDCServer := startMockOIDCServer(t)
