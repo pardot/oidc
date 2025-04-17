@@ -118,7 +118,7 @@ func writeHTTPError(w http.ResponseWriter, req *http.Request, code int, message 
 type authErrorCode string
 
 // https://tools.ietf.org/html/rfc6749#section-4.1.2.1
-// nolint:unused,varcheck,deadcode
+// nolint:unused
 const (
 	authErrorCodeInvalidRequest           authErrorCode = "invalid_request"
 	authErrorCodeUnauthorizedClient       authErrorCode = "unauthorized_client"
@@ -168,7 +168,7 @@ func writeAuthError(w http.ResponseWriter, req *http.Request, redirectURI *url.U
 // but useful when the redirect URI is configured at the client only, and not
 // passed in the authorization request. If the error cannot make use of this, it
 // will be ignored and the original error returned
-func addRedirectToError(err error, redirectURI string) error { //nolint:unparam,unused,deadcode
+func addRedirectToError(err error, redirectURI string) error { //nolint:unparam,unused
 	if err, ok := err.(*authError); ok {
 		err.RedirectURI = redirectURI
 		return err
@@ -179,7 +179,7 @@ func addRedirectToError(err error, redirectURI string) error { //nolint:unparam,
 type bearerErrorCode string
 
 // https://tools.ietf.org/html/rfc6750#section-3.1
-// nolint:unused,varcheck,deadcode
+// nolint:unused
 const (
 	// The request is missing a required parameter, includes an unsupported
 	// parameter or parameter value, repeats the same parameter, uses more than

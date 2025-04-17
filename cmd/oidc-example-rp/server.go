@@ -136,9 +136,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	s.mux.ServeHTTP(w, req)
 }
 
-func mustRandStr(len int) string {
-	b := make([]byte, len)
-	if r, err := rand.Read(b); err != nil || r != len {
+func mustRandStr(l int) string {
+	b := make([]byte, l)
+	if r, err := rand.Read(b); err != nil || r != l {
 		panic("error or underread from rand.Read")
 	}
 	return base64.RawURLEncoding.EncodeToString(b)

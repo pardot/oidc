@@ -34,7 +34,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, errors.New("missing TokenSource")
 	}
 
-	token, err := t.TokenSource.Token(req.Context())
+	token, err := t.Token(req.Context())
 	if err != nil {
 		return nil, err
 	}
