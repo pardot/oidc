@@ -210,7 +210,7 @@ type bearerError struct {
 	Description string
 }
 
-// String encodes the error in a format suitible for including in a www-authenticate header
+// String encodes the error in a format suitable for including in a www-authenticate header
 func (b *bearerError) String() string {
 	ret := []string{}
 	if b.Realm != "" {
