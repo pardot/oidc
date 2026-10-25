@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Session represents an invidual user session, bound to a given client.
+// Session represents an individual user session, bound to a given client.
 //
 // The Session object is tagged for serialization using JSON tags.
 type Session interface {
@@ -18,7 +18,7 @@ type Session interface {
 	Expiry() time.Time
 }
 
-// SessionManager is used to track the state of the session across it's
+// SessionManager is used to track the state of the session across its
 // lifecycle.
 type SessionManager interface {
 	// NewID should return a new, unique identifier to be used for a session. It
@@ -71,7 +71,7 @@ const (
 )
 
 // Session represents an authenticated user from the time they are issued a
-// code, until their last refresh/access token expires.s
+// code, until their last refresh/access token expires.
 type sessionV2 struct {
 	ID string `json:"id,omitempty"`
 	// stage represents where in the overall lifecycle this session is.
@@ -155,7 +155,7 @@ func getSession(ctx context.Context, sm SessionManager, sessionID string) (*sess
 }
 
 func putSession(ctx context.Context, sm SessionManager, sess *sessionV2) error {
-	// serialize to db, making sure we populate the private record so they other side can fetch ID
+	// serialize to db, making sure we populate the private record so the other side can fetch ID
 
 	ser, err := json.Marshal(sess)
 	if err != nil {

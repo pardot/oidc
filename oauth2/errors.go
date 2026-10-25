@@ -62,7 +62,7 @@ type TokenError struct {
 	// 	client
 	WWWAuthenticate string `json:"-"`
 	// Cause wraps any upstream error that resulted in this token being issued,
-	// if this error should be unrwappable
+	// if this error should be unwrappable
 	Cause error `json:"-"`
 }
 

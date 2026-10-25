@@ -117,7 +117,7 @@ func WithPortRange(portLow int, portHigh int) LocalOIDCTokenSourceOpt {
 	}
 }
 
-// WithRenderer sets a customer renderer. The renderer can optionally implement
+// WithRenderer sets a custom renderer. The renderer can optionally implement
 // the http.Handler interface. If it does, it will be called for all requests on
 // the local HTTP server that are not handled by the TokenSource. This can be
 // used to serve additional content the renderer depends on.
@@ -135,7 +135,7 @@ func WithOpener(opener Opener) LocalOIDCTokenSourceOpt {
 	}
 }
 
-// Token attempts to a fetch a token. The user will be required to open a URL
+// Token attempts to fetch a token. The user will be required to open a URL
 // in their browser and authenticate to the upstream IdP.
 func (s *LocalOIDCTokenSource) Token(ctx context.Context) (*oidc.Token, error) {
 	s.Lock()
